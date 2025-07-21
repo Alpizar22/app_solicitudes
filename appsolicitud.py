@@ -17,8 +17,8 @@ sheet = client.open_by_key("18uBeG2cCDpb4I2M3OkEZX9H8jb94LTMEeImJKXxtXHg").sheet
 with open("data/estructura_roles.json", encoding="utf-8") as f:
     estructura_roles = json.load(f)
 
-with open("data/numeros_por_perfil.json", encoding="utf-8") as f:
-    numeros_por_perfil = json.load(f)
+with open("data/numeros_por_rol.json", encoding="utf-8") as f:
+    numeros_por_rol = json.load(f)
 
 with open("data/horarios.json", encoding="utf-8") as f:
     horarios_dict = json.load(f)
@@ -29,9 +29,9 @@ st.markdown('<div style="color:gray; font-style:italic;">Completa todos los camp
 st.markdown("---")
 
 tipo = st.selectbox("Tipo de Solicitud", ["Selecciona...", "Alta", "Modificación", "Baja"])
-
 nombre = st.text_input("Nombre Completo")
 correo = st.text_input("Correo")
+
 area = None
 if tipo not in ["Selecciona...", "Baja"]:
     areas = ["Selecciona..."] + list(estructura_roles.keys())
@@ -46,10 +46,10 @@ if area and area != "Selecciona...":
         roles = ["Selecciona..."] + estructura_roles[area][perfil]
         rol = st.selectbox("Rol", roles)
 
-        if perfil in numeros_por_perfil:
-            if perfil == "Agente de Call Center":
-                numero_in = st.selectbox("Número IN", ["Selecciona..."] + numeros_por_perfil[perfil]["Numero_IN"])
-            numero_saliente = st.selectbox("Número Saliente", ["Selecciona..."] + numeros_por_perfil[perfil]["Numero_Saliente"])
+        if rol in numeros_por_rol:
+            if numeros_por_rol[rol]["Numero_IN"]:
+                numero_in = st.selectbox("Número IN", ["Selecciona..."] + numeros_por_rol[rol]["Numero_IN"])
+            numero_saliente = st.selectbox("Número Saliente", ["Selecciona..."] + numeros_por_rol[rol]["Numero_Saliente"])
 
         horario = st.selectbox("Horario de trabajo", ["Selecciona..."] + list(horarios_dict.keys()))
         if horario != "Selecciona...":
@@ -64,8 +64,8 @@ if st.button("Enviar Solicitud"):
         st.warning("⚠️ Por favor selecciona valores válidos en los desplegables.")
     elif perfil == "Agente de Call Center" and numero_in == "Selecciona...":
         st.warning("⚠️ El perfil Agente de Call Center requiere Número IN.")
-    elif perfil in numeros_por_perfil and numero_saliente == "Selecciona...":
-        st.warning("⚠️ Este perfil requiere seleccionar Número Saliente.")
+    elif rol in numeros_por_rol and numero_saliente == "Selecciona...":
+        st.warning("⚠️ Este rol requiere seleccionar Número Saliente.")
     else:
         fila = [
             datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -102,5 +102,4 @@ if password == "Generardo2":
         st.error(f"❌ No se pudo leer o eliminar: {e}")
 elif password:
     st.error("❌ Contraseña incorrecta")
-
 
