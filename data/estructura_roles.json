@@ -1,0 +1,88 @@
+{
+    "Directores Académicos": {
+        "Director académico": [
+            "Director de programa"
+        ]
+    },
+    "Ejecutivos": {
+        "Ejecutivo AC": [
+            "Ejecutivo RC Feeder",
+            "Ejecutivo de atención y captación Online",
+            "PG GDL Ejecutivo AC Doctorado",
+            "Ejecutivo de Educación continua",
+            "UG GDL Ejecutivo AC CYT",
+            "Tabasco Ejecutivo AC K12",
+            "PG GDL Ejecutivo AC Maestría",
+            "K12 Ejecutivo de AC High School",
+            "Tabasco Ejecutivo AC Licenciaturas",
+            "Tabasco Ejecutivo AC Posgrados",
+            "K12 Ejecutivo de AC Colegio Lomas del Valle",
+            "UG GDL Ejecutivo AC Salud",
+            "K12 Ejecutivo de AC Antonio Caso",
+            "UG GDL Ejecutivo AC Administrativas",
+            "K12 Ejecutivo de AC Colegio Lomas del Valle Santa"
+        ]
+    },
+    "Consulta": {
+        "Consulta": [
+            "KAM UG",
+            "Rol genérico",
+            "Director de comunicación y MKT"
+        ]
+    },
+    "Marketing": {
+        "Growth Mkt": [
+            "Supervisor de MKT",
+            "Agente MKT"
+        ],
+        "Supervisor/Jefatura": [
+            "Jefatura K12"
+        ]
+    },
+    "Contact Center": {
+        "Agente de Call Center": [
+            "Agente de Call Center UG GDL CS Y MEDICINA",
+            "Agente de Call Center Tabasco Pre-Lic-PG",
+            "Agente de Call Center UG GDL DCYT",
+            "Agente de Call Center UG GDL CSEA",
+            "Agente de Call Center Online PG",
+            "Agente de Call Center Online Lic",
+            "Agente de Call Center Posgrados",
+            "Agente de Call Center Idiomas"
+        ]
+    },
+    "Supervisores": {
+        "Supervisor/Jefatura": [
+            "Supervisor captación PG",
+            "Supervisor de Feeder"
+        ]
+    },
+    "Analista": {
+        "Analista Datos": [
+            "Analista de datos",
+            "Especialistas de datos"
+        ],
+        "Consulta": [
+            "Especialista de datos CC"
+        ]
+    },
+    "Sistemas": {
+        "Sistemas": [
+            "Sistemas"
+        ]
+    },
+    "Supervisor": {
+        "Supervisor/Jefatura": [
+            "Supervisor captación UG",
+            "Supervisor de MKT",
+            "Jefatura Tabasco",
+            "KAM PG",
+            "Supervisor de Call Center",
+            "Jefatura Online",
+            "Gerente de Call Center"
+        ],
+        "Consulta": [
+            "Gerente de captación Licenciatura / Posgrados"
+        ]
+    }
+}

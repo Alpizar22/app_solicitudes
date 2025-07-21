@@ -1,0 +1,16 @@
+{
+    "Ejecutivo AC": {
+        "Numero_IN": [],
+        "Numero_Saliente": [
+            "3336488889",
+            "3336488887",
+            "3336488890",
+            "3336488882",
+            "3336488881"
+        ]
+    },
+    "Agente de Call Center": {
+        "Numero_IN": [],
+        "Numero_Saliente": []
+    }
+}
