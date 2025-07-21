@@ -102,3 +102,5 @@ if password == "Generardo2":
         st.error(f"❌ No se pudo leer o eliminar: {e}")
 elif password:
     st.error("❌ Contraseña incorrecta")
+
+
