@@ -12,5 +12,77 @@
     "Agente de Call Center": {
         "Numero_IN": [],
         "Numero_Saliente": []
+    },
+    "Agente de Call Center Idiomas": {
+        "Numero_IN": [
+            "18665016614"
+        ],
+        "Numero_Saliente": [
+            "3336488890"
+        ]
+    },
+    "Agente de Call Center K12": {
+        "Numero_IN": [
+            "18665016191"
+        ],
+        "Numero_Saliente": [
+            "3336488881"
+        ]
+    },
+    "Agente de Call Center Online PG": {
+        "Numero_IN": [
+            "18557586260"
+        ],
+        "Numero_Saliente": [
+            "3336488889"
+        ]
+    },
+    "Agente de Call Center Online Lic": {
+        "Numero_IN": [
+            "18557586260"
+        ],
+        "Numero_Saliente": [
+            "3336488889"
+        ]
+    },
+    "Agente de Call Center Posgrados": {
+        "Numero_IN": [
+            "18665018283"
+        ],
+        "Numero_Saliente": [
+            "3336488887"
+        ]
+    },
+    "Agente de Call Center Tabasco Pre-Lic-PG": {
+        "Numero_IN": [
+            "18665017410"
+        ],
+        "Numero_Saliente": [
+            "3336488882"
+        ]
+    },
+    "Agente de Call Center UG GDL CS Y MEDICINA": {
+        "Numero_IN": [
+            "18665017410"
+        ],
+        "Numero_Saliente": [
+            "3336488882"
+        ]
+    },
+    "Agente de Call Center UG GDL CSEA": {
+        "Numero_IN": [
+            "18665017410"
+        ],
+        "Numero_Saliente": [
+            "3336488882"
+        ]
+    },
+    "Agente de Call Center UG GDL DCYT": {
+        "Numero_IN": [
+            "18665017410"
+        ],
+        "Numero_Saliente": [
+            "3336488882"
+        ]
     }
 }
