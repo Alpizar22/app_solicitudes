@@ -3,8 +3,17 @@ import streamlit as st
 import pandas as pd
 import json
 from datetime import datetime
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# Cargar archivos JSON
+# === Conectar con Google Sheets desde st.secrets ===
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+service_account_info = st.secrets["google_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
+client = gspread.authorize(creds)
+sheet = client.open_by_key("18uBeG2cCDpb4I2M3OkEZX9H8jb94LTMEeImJKXxtXHg").sheet1
+
+# === Cargar archivos JSON locales ===
 with open("data/estructura_roles.json", encoding="utf-8") as f:
     estructura_roles = json.load(f)
 
@@ -14,26 +23,15 @@ with open("data/numeros_por_perfil.json", encoding="utf-8") as f:
 with open("data/horarios.json", encoding="utf-8") as f:
     horarios_dict = json.load(f)
 
-# Cargar solicitudes previas
-try:
-    df = pd.read_excel("Solicitudes.xlsx")
-except FileNotFoundError:
-    df = pd.DataFrame()
-
+# === INTERFAZ ===
 st.title("Formulario de Solicitudes de Usuario")
 
 tipo = st.selectbox("Tipo de Solicitud", ["Alta", "Modificación", "Baja"])
-
-# --- Campos comunes
 nombre = st.text_input("Nombre Completo")
 correo = st.text_input("Correo")
-
 area = st.selectbox("Área", list(estructura_roles.keys())) if tipo != "Baja" else None
 
-# Inicializar variables para evitar errores
 perfil = rol = numero_in = numero_saliente = horario = turno = ""
-
-# --- Campos condicionales
 if area:
     perfiles = list(estructura_roles[area].keys())
     perfil = st.selectbox("Perfil", perfiles)
@@ -52,45 +50,37 @@ if area:
 
 solicitado_por = st.text_input("¿Quién lo solicitó?")
 
-# --- Botón de envío
+# === Enviar solicitud ===
 if st.button("Enviar Solicitud"):
-    # Validaciones
     if not nombre or not correo or not solicitado_por:
         st.warning("⚠️ Nombre, correo y quién lo solicitó son obligatorios.")
     elif tipo != "Baja" and (not area or not perfil or not rol or not horario):
-        st.warning("⚠️ Por favor completa todos los campos requeridos para altas o modificaciones.")
+        st.warning("⚠️ Completa todos los campos requeridos para altas o modificaciones.")
     elif perfil == "Agente de Call Center" and not numero_in:
         st.warning("⚠️ El perfil Agente de Call Center requiere Número IN.")
     elif perfil in numeros_por_perfil and not numero_saliente:
         st.warning("⚠️ El perfil seleccionado requiere Número Saliente.")
     else:
-        nueva_solicitud = {
-            "Fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Tipo": tipo,
-            "Nombre": nombre,
-            "Correo": correo,
-            "Área": area if tipo != "Baja" else "",
-            "Perfil": perfil if tipo != "Baja" else "",
-            "Rol": rol if tipo != "Baja" else "",
-            "Número IN": numero_in if perfil == "Agente de Call Center" else "",
-            "Número Saliente": numero_saliente if perfil in numeros_por_perfil else "",
-            "Horario": horario if tipo != "Baja" else "",
-            "Turno": turno if tipo != "Baja" else "",
-            "Solicitante": solicitado_por
-        }
-
-        df = pd.concat([df, pd.DataFrame([nueva_solicitud])], ignore_index=True)
+        fila = [
+            datetime.now().strftime("%d/%m/%Y %H:%M"),
+            tipo, nombre, correo, area or "", perfil or "", rol or "",
+            numero_in, numero_saliente, horario, turno, solicitado_por
+        ]
         try:
-            df.to_excel("Solicitudes.xlsx", index=False)
-            st.success("✅ Solicitud registrada correctamente.")
-        except PermissionError:
-            st.error("❌ No se pudo guardar. Cierra el archivo 'Solicitudes.xlsx' si está abierto.")
+            sheet.append_row(fila)
+            st.success("✅ Solicitud enviada y registrada en Google Sheets.")
+        except Exception as e:
+            st.error(f"❌ Error al guardar en Google Sheets: {e}")
 
-# --- Protección para mostrar historial
+# === Historial protegido ===
 st.subheader("Historial de Solicitudes (solo acceso autorizado)")
 password = st.text_input("Ingresa la contraseña para ver el historial", type="password")
 if password == "Generardo2":
-    st.success("🔓 Acceso concedido al historial")
-    st.dataframe(df)
+    try:
+        data = sheet.get_all_records()
+        st.success("🔓 Acceso concedido al historial")
+        st.dataframe(pd.DataFrame(data))
+    except Exception as e:
+        st.error(f"❌ No se pudo leer la hoja: {e}")
 elif password:
     st.error("❌ Contraseña incorrecta")
