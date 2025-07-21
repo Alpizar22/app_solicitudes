@@ -47,9 +47,10 @@ if area and area != "Selecciona...":
         rol = st.selectbox("Rol", roles)
 
         if rol in numeros_por_rol:
-            if numeros_por_rol[rol]["Numero_IN"]:
+            if numeros_por_rol[rol].get("Numero_IN"):
                 numero_in = st.selectbox("Número IN", ["Selecciona..."] + numeros_por_rol[rol]["Numero_IN"])
-            numero_saliente = st.selectbox("Número Saliente", ["Selecciona..."] + numeros_por_rol[rol]["Numero_Saliente"])
+            if numeros_por_rol[rol].get("Numero_Saliente"):
+                numero_saliente = st.selectbox("Número Saliente", ["Selecciona..."] + numeros_por_rol[rol]["Numero_Saliente"])
 
         horario = st.selectbox("Horario de trabajo", ["Selecciona..."] + list(horarios_dict.keys()))
         if horario != "Selecciona...":
@@ -64,7 +65,7 @@ if st.button("Enviar Solicitud"):
         st.warning("⚠️ Por favor selecciona valores válidos en los desplegables.")
     elif perfil == "Agente de Call Center" and numero_in == "Selecciona...":
         st.warning("⚠️ El perfil Agente de Call Center requiere Número IN.")
-    elif rol in numeros_por_rol and numero_saliente == "Selecciona...":
+    elif rol in numeros_por_rol and numeros_por_rol[rol].get("Numero_Saliente") and numero_saliente == "Selecciona...":
         st.warning("⚠️ Este rol requiere seleccionar Número Saliente.")
     else:
         fila = [
