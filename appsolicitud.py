@@ -1,4 +1,5 @@
 
+
 import streamlit as st
 import pandas as pd
 import json
@@ -25,12 +26,13 @@ with open("data/horarios.json", encoding="utf-8") as f:
     horarios_dict = json.load(f)
 
 # === Función para enviar correo ===
-def enviar_correo(destinatario, asunto, mensaje):
+def enviar_correo(asunto, mensaje, copia_a):
     try:
         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
-        yag.send(to=destinatario, subject=asunto, contents=mensaje)
+        destinatarios = ["luis.alpizar@edu.uag.mx"] + [copia_a]
+        yag.send(to=destinatarios, subject=asunto, contents=mensaje)
     except Exception as e:
-        st.warning(f"No se pudo enviar correo a {destinatario}: {e}")
+        st.warning(f"No se pudo enviar el correo: {e}")
 
 # === UI: Encabezado estilizado ===
 st.markdown("## ✨ Formulario de Solicitudes")
@@ -40,7 +42,6 @@ st.markdown("---")
 tipo = st.selectbox("Tipo de Solicitud", ["Selecciona...", "Alta", "Modificación", "Baja"])
 nombre = st.text_input("Nombre Completo")
 correo = st.text_input("Correo")
-
 area = None
 if tipo not in ["Selecciona...", "Baja"]:
     areas = ["Selecciona..."] + list(estructura_roles.keys())
@@ -65,10 +66,10 @@ if area and area != "Selecciona...":
         if horario != "Selecciona...":
             turno = horarios_dict.get(horario, "")
 
-solicitado_por = st.text_input("¿Quién lo solicitó?")
+correo_solicitante = st.text_input("Correo de quien lo solicitó")
 
 if st.button("Enviar Solicitud"):
-    if tipo == "Selecciona..." or not nombre or not correo or not solicitado_por:
+    if tipo == "Selecciona..." or not nombre or not correo or not correo_solicitante:
         st.warning("⚠️ Todos los campos son obligatorios.")
     elif tipo != "Baja" and (area == "Selecciona..." or perfil == "Selecciona..." or rol == "Selecciona..." or horario == "Selecciona..."):
         st.warning("⚠️ Por favor selecciona valores válidos en los desplegables.")
@@ -80,13 +81,12 @@ if st.button("Enviar Solicitud"):
         fila = [
             datetime.now().strftime("%d/%m/%Y %H:%M"),
             tipo, nombre, correo, area or "", perfil or "", rol or "",
-            numero_in, numero_saliente, horario, turno, solicitado_por
+            numero_in, numero_saliente, horario, turno, correo_solicitante
         ]
         try:
             sheet.append_row(fila)
             st.success("✅ Solicitud registrada correctamente en Google Sheets.")
 
-            # Construir mensaje para el correo
             mensaje = f"""Se ha registrado una solicitud de tipo: {tipo}
 
 Nombre: {nombre}
@@ -98,12 +98,10 @@ Número IN: {numero_in}
 Número Saliente: {numero_saliente}
 Horario: {horario}
 Turno: {turno}
-Solicitado por: {solicitado_por}
+Correo del solicitante: {correo_solicitante}
 Fecha y hora: {datetime.now().strftime("%d/%m/%Y %H:%M")}
 """
-
-            enviar_correo("tucorreo@institucion.com", f"Solicitud {tipo} - {nombre}", mensaje)
-            enviar_correo(correo, f"Confirmación de solicitud {tipo}", mensaje)
+            enviar_correo(f"Solicitud {tipo} - {nombre}", mensaje, correo_solicitante)
 
         except Exception as e:
             st.error(f"❌ Error al guardar o enviar correo: {e}")
@@ -132,4 +130,3 @@ if password == "Generardo2":
         st.error(f"❌ No se pudo leer o eliminar: {e}")
 elif password:
     st.error("❌ Contraseña incorrecta")
-
