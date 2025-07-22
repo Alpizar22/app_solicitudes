@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import yagmail
 
 # === Conexión segura con Google Sheets ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -22,6 +23,14 @@ with open("data/numeros_por_rol.json", encoding="utf-8") as f:
 
 with open("data/horarios.json", encoding="utf-8") as f:
     horarios_dict = json.load(f)
+
+# === Función para enviar correo ===
+def enviar_correo(destinatario, asunto, mensaje):
+    try:
+        yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
+        yag.send(to=destinatario, subject=asunto, contents=mensaje)
+    except Exception as e:
+        st.warning(f"No se pudo enviar correo a {destinatario}: {e}")
 
 # === UI: Encabezado estilizado ===
 st.markdown("## ✨ Formulario de Solicitudes")
@@ -76,8 +85,28 @@ if st.button("Enviar Solicitud"):
         try:
             sheet.append_row(fila)
             st.success("✅ Solicitud registrada correctamente en Google Sheets.")
+
+            # Construir mensaje para el correo
+            mensaje = f"""Se ha registrado una solicitud de tipo: {tipo}
+
+Nombre: {nombre}
+Correo: {correo}
+Área: {area}
+Perfil: {perfil}
+Rol: {rol}
+Número IN: {numero_in}
+Número Saliente: {numero_saliente}
+Horario: {horario}
+Turno: {turno}
+Solicitado por: {solicitado_por}
+Fecha y hora: {datetime.now().strftime("%d/%m/%Y %H:%M")}
+"""
+
+            enviar_correo("tucorreo@institucion.com", f"Solicitud {tipo} - {nombre}", mensaje)
+            enviar_correo(correo, f"Confirmación de solicitud {tipo}", mensaje)
+
         except Exception as e:
-            st.error(f"❌ Error al guardar: {e}")
+            st.error(f"❌ Error al guardar o enviar correo: {e}")
 
 # === Historial protegido con eliminación ===
 st.markdown("---")
@@ -95,7 +124,7 @@ if password == "Generardo2":
         if st.button("Eliminar seleccionadas"):
             if seleccion:
                 for i in sorted(seleccion, reverse=True):
-                    sheet.delete_rows(i + 2)  # +2 por encabezado y base 1
+                    sheet.delete_rows(i + 2)
                 st.success("✅ Solicitudes eliminadas correctamente.")
             else:
                 st.warning("⚠️ No se seleccionaron filas para eliminar.")
