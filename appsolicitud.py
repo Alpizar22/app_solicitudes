@@ -35,13 +35,13 @@ def enviar_correo(asunto, mensaje, copia_a):
         st.warning(f"No se pudo enviar el correo: {e}")
 
 # === UI: Encabezado estilizado ===
-st.markdown("## ✨ Formulario de Solicitudes")
+st.markdown("## ✨ Formulario de Solicitudes Zoho CRM")
 st.markdown('<div style="color:gray; font-style:italic;">Completa todos los campos para registrar una nueva solicitud</div>', unsafe_allow_html=True)
 st.markdown("---")
 
-tipo = st.selectbox("Tipo de Solicitud", ["Selecciona...", "Alta", "Modificación", "Baja"])
-nombre = st.text_input("Nombre Completo")
-correo = st.text_input("Correo")
+tipo = st.selectbox("Tipo de Solicitud en Zoho", ["Selecciona...", "Alta", "Modificación", "Baja"])
+nombre = st.text_input("Nombre Completo de Usuario")
+correo = st.text_input("Correo institucional")
 area = None
 if tipo not in ["Selecciona...", "Baja"]:
     areas = ["Selecciona..."] + list(estructura_roles.keys())
@@ -66,7 +66,7 @@ if area and area != "Selecciona...":
         if horario != "Selecciona...":
             turno = horarios_dict.get(horario, "")
 
-correo_solicitante = st.text_input("Correo de quien lo solicitó")
+correo_solicitante = st.text_input("Correo de quien lo solicita")
 
 if st.button("Enviar Solicitud"):
     if tipo == "Selecciona..." or not nombre or not correo or not correo_solicitante:
