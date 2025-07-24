@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import pandas as pd
 import json
@@ -39,6 +37,26 @@ st.markdown("## ✨ Formulario de Solicitudes Zoho CRM")
 st.markdown('<div style="color:gray; font-style:italic;">Completa todos los campos para registrar una nueva solicitud</div>', unsafe_allow_html=True)
 st.markdown("---")
 
+# === Guía de uso ===
+with st.expander("🧭 ¿Cómo usar este formulario? Haz clic aquí para ver la guía"):
+    st.markdown("""
+    ### 📌 Pasos para llenar una solicitud:
+    1. **Selecciona el tipo de solicitud**: Alta, Modificación o Baja.
+    2. **Llena los campos obligatorios** como nombre, correo y quién lo solicita.
+    3. Si eliges **Alta o Modificación**, también deberás seleccionar:
+        - Área → Perfil → Rol (en cascada)
+        - Horario y turno
+        - En caso de **Agentes de Call Center** o **Ejecutivos AC**, selecciona los números asignados
+    4. Haz clic en **Enviar Solicitud**.
+
+    ---
+    ### 💡 Recomendaciones:
+    - Revisa bien los datos antes de enviar.
+    - Si te equivocas, puedes **eliminar la solicitud** desde el historial (con contraseña).
+    - Se envía un **correo de confirmación** tanto a ti como al área administrativa.
+    """)
+
+# === Formulario ===
 tipo = st.selectbox("Tipo de Solicitud en Zoho", ["Selecciona...", "Alta", "Modificación", "Baja"])
 nombre = st.text_input("Nombre Completo de Usuario")
 correo = st.text_input("Correo institucional")
@@ -130,3 +148,4 @@ if password == "Generardo2":
         st.error(f"❌ No se pudo leer o eliminar: {e}")
 elif password:
     st.error("❌ Contraseña incorrecta")
+
