@@ -47,12 +47,12 @@ def enviar_correo(asunto, mensaje, copia_a):
 
 # === Configuración general ===
 st.set_page_config(page_title="Gestor Zoho CRM", layout="wide")
-tabs = st.tabs(["🌟 Solicitudes", "🛠️ Incidencias", "🔍 Ver mi estado", "🔐 Zona Admin"])
+tabs = st.tabs(["🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "🔍 Ver el estado de mis solicitudes", "🔐 Zona Admin"])
 
 # === Solicitudes ===
 with tabs[0]:
     st.markdown("## 🌟 Formulario de Solicitudes Zoho CRM")
-    with st.expander("🔹 ¿Cómo usar este sistema? Haz clic aquí para ver la guía completa"):
+    with st.expander("🔹 ¿Cómo hacer una solicitud? Haz clic aquí para ver la guía completa"):
         st.markdown("""
         ### 🌟 Guía para Solicitudes de Usuario en Zoho CRM
 
@@ -62,17 +62,18 @@ with tabs[0]:
         - **Alta**: nuevo usuario.
         - **Modificación**: cambios de rol, horario, nombre, correo.
         - **Baja**: elimina acceso.
+        - **En caso de error de envío**: Comunicarse con luis.alpizar@edu.uag.mx para eliminar la solicitud.
 
         #### 📅 Campos obligatorios:
         - Nombre, correo, solicitante.
         - Para Alta/Modificación: área > perfil > rol, horario y turno.
-        - Número IN/Saliente si aplica.
+        - Número IN/Saliente si aplica (Contact Center y Ejecutivos).
 
         #### 📧 Correo de confirmación:
-        Se envía a quien solicita y a administración.
+        Se envía a quien solicita, Oscar Alpizar y Carlos Sotelo
 
         #### 🛋️ Historial:
-        Con contraseña puedes eliminar y cambiar estado.
+        Se puede consultar el estado de la solicitud y credenciales de acceso.
         """)
 
     tipo = st.selectbox("Tipo de Solicitud en Zoho", ["Selecciona...", "Alta", "Modificación", "Baja"])
@@ -134,7 +135,7 @@ with tabs[1]:
         - **Nota: Sobre el link tiene que ser el de Zoho**.
         """)
 
-    correo = st.text_input("Correo del solicitante")
+    correo = st.text_input("Correo de quien solicita")
     asunto = st.text_input("Asunto o título de la incidencia")
     categoria = st.selectbox("Categoría", ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Otros"])
     descripcion = st.text_area("Descripción breve")
@@ -154,7 +155,7 @@ with tabs[2]:
 
     if st.session_state.usuario_logueado is None:
         st.info("🔒 Para continuar, ingresa tu contraseña.")
-        clave = st.text_input("Contraseña personal", type="password")
+        clave = st.text_input("Contraseña", type="password")
         if clave in usuarios_dict:
             st.session_state.usuario_logueado = usuarios_dict[clave]
             st.success(f"Bienvenido, {st.session_state.usuario_logueado}")
