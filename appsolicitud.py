@@ -1,4 +1,3 @@
-# appsolicitud.py
 import streamlit as st
 import pandas as pd
 import json
@@ -24,16 +23,29 @@ with open("data/numeros_por_rol.json", encoding="utf-8") as f:
 with open("data/horarios.json", encoding="utf-8") as f:
     horarios_dict = json.load(f)
 
+# === Usuarios permitidos desde archivo Excel ===
+usuarios_df = pd.read_excel(r"C:\Users\4659189\Downloads\app_solicitudes_limpio\Usuariosapp.xlsx")
+usuarios_dict = dict(zip(usuarios_df["Contraseña"], usuarios_df["Correo"]))
+
+# === Variables de sesión para login ===
+if "usuario_logueado" not in st.session_state:
+    st.session_state.usuario_logueado = None
+
 # === Correo ===
 def enviar_correo(asunto, mensaje, copia_a):
     try:
         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
-        destinatarios = ["luis.alpizar@edu.uag.mx", copia_a]
-        yag.send(to=destinatarios, subject=asunto, contents=mensaje)
+        yag.send(
+            to=["luis.alpizar@edu.uag.mx", copia_a],
+            cc=["carlos.sotelo@edu.uag.mx"],
+            subject=asunto,
+            contents=mensaje,
+            headers={"From": "CRM UAG <" + st.secrets["email"]["user"] + ">"}
+        )
     except Exception as e:
         st.warning(f"No se pudo enviar el correo: {e}")
 
-# === Tabs ===
+# === Configuración general ===
 st.set_page_config(page_title="Gestor Zoho CRM", layout="wide")
 tabs = st.tabs(["🌟 Solicitudes", "🛠️ Incidencias", "🔍 Ver mi estado", "🔐 Zona Admin"])
 
@@ -107,7 +119,7 @@ with tabs[0]:
 
 # === Incidencias ===
 with tabs[1]:
-    st.markdown("## 🛠️ Reporte de Incidencias")
+    st.markdown("## 🛠️ Reporte de Incidencias Zoho CRM")
     with st.expander("🔹 ¿Cómo reportar una incidencia?"):
         st.markdown("""
         ### 📄 Guía para incidencias
@@ -119,41 +131,44 @@ with tabs[1]:
         - **Equivalencia**: ajustes administrativos.
         - **IVR**: llamadas automáticas.
         - **Funcionalidad Zoho**, **Mensajes**, **Otros**.
-        - **Nota: Sobre el link tiene que ser el de Zoho**.
+        - **Nota: El link tiene que ser de Zoho**.
         """)
 
-    correo = st.text_input("Correo del solicitante")
+    correo = st.text_input("Correo de quien lo solicita")
     asunto = st.text_input("Asunto o título de la incidencia")
-    categoria = st.selectbox("Categoría", ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Otros"])
-    descripcion = st.text_area("Descripción breve")
+    categoria = st.selectbox("Categoría", ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Cursos Zoho", "Otros"])
+    descripcion = st.text_area("Descripción y usuarios que presentan la incidencia")
     link = st.text_input("Link del registro afectado")
-
-    archivo = None
-    if os.getenv("STREAMLIT_SERVER_HEADLESS") != "1":
-        archivo = st.file_uploader("Subir archivo (solo local)", type=["png", "jpg", "pdf", "xlsx", "csv"])
 
     if st.button("Enviar Incidencia"):
         fila = [datetime.now().strftime("%d/%m/%Y %H:%M"), correo, asunto, categoria, descripcion, link, "Pendiente"]
         try:
             sheet_incidencias.append_row(fila)
             st.success("✅ Incidencia registrada.")
-            if archivo:
-                with open(f"incidencias_archivos/{archivo.name}", "wb") as f:
-                    f.write(archivo.read())
         except Exception as e:
             st.error(f"Error: {e}")
 
-# === Consulta ===
+# === Consulta por usuario ===
 with tabs[2]:
-    st.markdown("## 🔍 Consulta de Estado")
-    correo = st.text_input("Ingresa tu correo institucional")
-    if correo:
+    st.markdown("## 🔍 Consulta de Estado de Solicitudes")
+
+    if st.session_state.usuario_logueado is None:
+        st.info("🔒 Para continuar, ingresa tu contraseña.")
+        clave = st.text_input("Contraseña personal", type="password")
+        if clave in usuarios_dict:
+            st.session_state.usuario_logueado = usuarios_dict[clave]
+            st.success(f"Bienvenido, {st.session_state.usuario_logueado}")
+        elif clave:
+            st.error("❌ Contraseña incorrecta")
+
+    if st.session_state.usuario_logueado:
+        correo_usuario = st.session_state.usuario_logueado
         df_s = pd.DataFrame(sheet_solicitudes.get_all_records())
         df_i = pd.DataFrame(sheet_incidencias.get_all_records())
-        st.subheader("Solicitudes")
-        st.dataframe(df_s[df_s["Solicitante"] == correo])
-        st.subheader("Incidencias")
-        st.dataframe(df_i[df_i["Correo"] == correo])
+        st.subheader("Solicitudes registradas")
+        st.dataframe(df_s[df_s["Solicitante"] == correo_usuario])
+        st.subheader("Incidencias reportadas")
+        st.dataframe(df_i[df_i["Correo"] == correo_usuario])
 
 # === Admin ===
 with tabs[3]:
@@ -163,27 +178,28 @@ with tabs[3]:
         df_s = pd.DataFrame(sheet_solicitudes.get_all_records())
         df_i = pd.DataFrame(sheet_incidencias.get_all_records())
         tab1, tab2 = st.tabs(["Solicitudes", "Incidencias"])
+        
         with tab1:
             st.dataframe(df_s)
-            fila = st.selectbox("Fila solicitud", df_s.index)
-            estado = st.selectbox("Nuevo estado", ["Pendiente", "En proceso", "Atendido"])
-            if st.button("Actualizar estado solicitud"):
-                sheet_solicitudes.update_cell(fila + 2, 14, estado)
-                st.success("Actualizado")
-            if st.button("Eliminar solicitud"):
-                sheet_solicitudes.delete_rows(fila + 2)
-                st.warning("Eliminada")
+            fila_s = st.selectbox("Fila solicitud", df_s.index, key="fila_solicitud")
+            estado_s = st.selectbox("Nuevo estado", ["Pendiente", "En proceso", "Atendido"], key="estado_solicitud")
+            if st.button("Actualizar estado solicitud", key="btn_actualizar_solicitud"):
+                sheet_solicitudes.update_cell(fila_s + 2, 14, estado_s)
+                st.success("✅ Estado actualizado correctamente.")
+            if st.button("Eliminar solicitud", key="btn_eliminar_solicitud"):
+                sheet_solicitudes.delete_rows(fila_s + 2)
+                st.warning("⚠️ Solicitud eliminada.")
+
         with tab2:
             st.dataframe(df_i)
-            fila = st.selectbox("Fila incidencia", df_i.index)
-            estado = st.selectbox("Nuevo estado", ["Pendiente", "En proceso", "Atendido"])
-            if st.button("Actualizar estado incidencia"):
-                sheet_incidencias.update_cell(fila + 2, 7, estado)
-                st.success("Actualizado")
-            if st.button("Eliminar incidencia"):
-                sheet_incidencias.delete_rows(fila + 2)
-                st.warning("Eliminada")
+            fila_i = st.selectbox("Fila incidencia", df_i.index, key="fila_incidencia")
+            estado_i = st.selectbox("Nuevo estado", ["Pendiente", "En proceso", "Atendido"], key="estado_incidencia")
+            if st.button("Actualizar estado incidencia", key="btn_actualizar_incidencia"):
+                sheet_incidencias.update_cell(fila_i + 2, 7, estado_i)
+                st.success("✅ Estado actualizado correctamente.")
+            if st.button("Eliminar incidencia", key="btn_eliminar_incidencia"):
+                sheet_incidencias.delete_rows(fila_i + 2)
+                st.warning("⚠️ Incidencia eliminada.")
     elif clave:
-        st.error("Contraseña incorrecta")
-
+        st.error("❌ Contraseña incorrecta")
 
