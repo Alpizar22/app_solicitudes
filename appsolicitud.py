@@ -23,8 +23,8 @@ with open("data/numeros_por_rol.json", encoding="utf-8") as f:
 with open("data/horarios.json", encoding="utf-8") as f:
     horarios_dict = json.load(f)
 
-# === Usuarios permitidos desde archivo Excel ===
-usuarios_df = pd.read_excel(r"C:\Users\4659189\Downloads\app_solicitudes_limpio\Usuariosapp.xlsx")
+# === Usuarios permitidos desde archivo Excel en la raíz ===
+usuarios_df = pd.read_excel("Usuariosapp.xlsx")
 usuarios_dict = dict(zip(usuarios_df["Contraseña"], usuarios_df["Correo"]))
 
 # === Variables de sesión para login ===
@@ -119,7 +119,7 @@ with tabs[0]:
 
 # === Incidencias ===
 with tabs[1]:
-    st.markdown("## 🛠️ Reporte de Incidencias Zoho CRM")
+    st.markdown("## 🛠️ Reporte de Incidencias")
     with st.expander("🔹 ¿Cómo reportar una incidencia?"):
         st.markdown("""
         ### 📄 Guía para incidencias
@@ -131,13 +131,13 @@ with tabs[1]:
         - **Equivalencia**: ajustes administrativos.
         - **IVR**: llamadas automáticas.
         - **Funcionalidad Zoho**, **Mensajes**, **Otros**.
-        - **Nota: El link tiene que ser de Zoho**.
+        - **Nota: Sobre el link tiene que ser el de Zoho**.
         """)
 
-    correo = st.text_input("Correo de quien lo solicita")
+    correo = st.text_input("Correo del solicitante")
     asunto = st.text_input("Asunto o título de la incidencia")
-    categoria = st.selectbox("Categoría", ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Cursos Zoho", "Otros"])
-    descripcion = st.text_area("Descripción y usuarios que presentan la incidencia")
+    categoria = st.selectbox("Categoría", ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Otros"])
+    descripcion = st.text_area("Descripción breve")
     link = st.text_input("Link del registro afectado")
 
     if st.button("Enviar Incidencia"):
