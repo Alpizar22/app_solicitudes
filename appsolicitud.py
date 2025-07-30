@@ -155,7 +155,7 @@ with tabs[2]:
 
     if st.session_state.usuario_logueado is None:
         st.info("🔒 Para continuar, ingresa tu contraseña.")
-        clave = st.text_input("Contraseña", type="password")
+        clave = st.text_input("Ingresa tu contraseña", type="password")
         if clave in usuarios_dict:
             st.session_state.usuario_logueado = usuarios_dict[clave]
             st.success(f"Bienvenido, {st.session_state.usuario_logueado}")
