@@ -43,7 +43,7 @@ def enviar_correo(asunto, mensaje_resumen, copia_a):
         """
         yag.send(
             to=["luis.alpizar@edu.uag.mx", copia_a],
-            cc=["carlos.sotelo@edu.uag.mx"],
+            cc=["carlos.sotelo@edu.uag.mx", "esther.diaz@edu.uag.mx"],
             subject=asunto,
             contents=[cuerpo],
             headers={"From": "CRM UAG <" + st.secrets["email"]["user"] + ">"}
@@ -186,7 +186,7 @@ with tabs[2]:
         for _, row in df_usuario.iterrows():
             with st.expander(f"📌 {row['Asunto']} - Estado: {row['Estado']}"):
                 st.markdown(f"""
-                **📅 Fecha:** {row['Marca de tiempo']}
+                **📅 Fecha:** {row['Fecha']}
                 **🧑‍💼 Atendido por:** {row.get('Atendido Por', 'Pendiente')}
                 **📝 Categoría:** {row['Categoría']}
                 **🔗 Link:** {row['Link']}
