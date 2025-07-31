@@ -32,14 +32,20 @@ if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 
 # === Correo ===
-def enviar_correo(asunto, mensaje, copia_a):
+def enviar_correo(asunto, mensaje_resumen, copia_a):
     try:
         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
+        cuerpo = f"""
+        <p>Hola,</p>
+        <p>Gracias por registrar tu solicitud en el CRM. Nuestro equipo la revisará y te daremos seguimiento lo antes posible.</p>
+        <p><strong>Resumen:</strong><br>{mensaje_resumen}</p>
+        <p>Saludos cordiales,<br><b>Equipo CRM UAG</b></p>
+        """
         yag.send(
             to=["luis.alpizar@edu.uag.mx", copia_a],
             cc=["carlos.sotelo@edu.uag.mx"],
             subject=asunto,
-            contents=mensaje,
+            contents=[cuerpo],
             headers={"From": "CRM UAG <" + st.secrets["email"]["user"] + ">"}
         )
     except Exception as e:
@@ -64,7 +70,7 @@ with tabs[0]:
         - **Baja**: elimina acceso.
         - **En caso de error de envío**: Comunicarse con luis.alpizar@edu.uag.mx para eliminar la solicitud.
 
-        #### 📅 Campos obligatorios:
+        #### 🗕️ Campos obligatorios:
         - Nombre, correo, solicitante.
         - Para Alta/Modificación: área > perfil > rol, horario y turno.
         - Número IN/Saliente si aplica (Contact Center y Ejecutivos).
@@ -72,7 +78,7 @@ with tabs[0]:
         #### 📧 Correo de confirmación:
         Se envía a quien solicita, Oscar Alpizar y Carlos Sotelo
 
-        #### 🛋️ Historial:
+        #### 🏦 Historial:
         Se puede consultar el estado de la solicitud y credenciales de acceso.
         """)
 
@@ -114,7 +120,11 @@ with tabs[0]:
             try:
                 sheet_solicitudes.append_row(fila)
                 st.success("✅ Solicitud registrada.")
-                enviar_correo(f"Solicitud {tipo} - {nombre}", f"Se registró solicitud de tipo {tipo} para {nombre}", correo_solicitante)
+                enviar_correo(
+                    f"Solicitud {tipo} - {nombre}",
+                    f"Tipo: {tipo}<br>Nombre: {nombre}<br>Correo: {correo}",
+                    correo_solicitante
+                )
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -142,7 +152,7 @@ with tabs[1]:
     link = st.text_input("Link del registro afectado")
 
     if st.button("Enviar Incidencia"):
-        fila = [datetime.now().strftime("%d/%m/%Y %H:%M"), correo, asunto, categoria, descripcion, link, "Pendiente"]
+        fila = [datetime.now().strftime("%d/%m/%Y %H:%M"), correo, asunto, categoria, descripcion, link, "Pendiente", "", ""]
         try:
             sheet_incidencias.append_row(fila)
             st.success("✅ Incidencia registrada.")
@@ -166,10 +176,26 @@ with tabs[2]:
         correo_usuario = st.session_state.usuario_logueado
         df_s = pd.DataFrame(sheet_solicitudes.get_all_records())
         df_i = pd.DataFrame(sheet_incidencias.get_all_records())
+
         st.subheader("Solicitudes registradas")
         st.dataframe(df_s[df_s["Solicitante"] == correo_usuario])
+
         st.subheader("Incidencias reportadas")
-        st.dataframe(df_i[df_i["Correo"] == correo_usuario])
+        df_usuario = df_i[df_i["Correo"] == correo_usuario]
+
+        for _, row in df_usuario.iterrows():
+            with st.expander(f"📌 {row['Asunto']} - Estado: {row['Estado']}"):
+                st.markdown(f"""
+                **📅 Fecha:** {row['Marca de tiempo']}
+                **🧑‍💼 Atendido por:** {row.get('Atendido Por', 'Pendiente')}
+                **📝 Categoría:** {row['Categoría']}
+                **🔗 Link:** {row['Link']}
+                **📄 Descripción:** {row['Descripción']}
+
+                ---
+                🔁 **Respuesta de la solicitud:**
+                {row.get('Respuesta de Solicitud', 'Aún sin respuesta')}
+                """)
 
 # === Admin ===
 with tabs[3]:
@@ -179,7 +205,7 @@ with tabs[3]:
         df_s = pd.DataFrame(sheet_solicitudes.get_all_records())
         df_i = pd.DataFrame(sheet_incidencias.get_all_records())
         tab1, tab2 = st.tabs(["Solicitudes", "Incidencias"])
-        
+
         with tab1:
             st.dataframe(df_s)
             fila_s = st.selectbox("Fila solicitud", df_s.index, key="fila_solicitud")
@@ -195,12 +221,16 @@ with tabs[3]:
             st.dataframe(df_i)
             fila_i = st.selectbox("Fila incidencia", df_i.index, key="fila_incidencia")
             estado_i = st.selectbox("Nuevo estado", ["Pendiente", "En proceso", "Atendido"], key="estado_incidencia")
-            if st.button("Actualizar estado incidencia", key="btn_actualizar_incidencia"):
-                sheet_incidencias.update_cell(fila_i + 2, 7, estado_i)
-                st.success("✅ Estado actualizado correctamente.")
+            atendido_por = st.text_input("👨‍💼 Atendido por", key="input_atendido_por")
+            respuesta = st.text_area("📜 Respuesta de la solicitud", key="input_respuesta")
+
+            if st.button("Actualizar incidencia", key="btn_actualizar_incidencia"):
+                sheet_incidencias.update_cell(fila_i + 2, 7, estado_i)  # Columna G
+                sheet_incidencias.update_cell(fila_i + 2, 8, atendido_por)  # Columna H
+                sheet_incidencias.update_cell(fila_i + 2, 9, respuesta)  # Columna I
+                st.success("✅ Incidencia actualizada correctamente.")
             if st.button("Eliminar incidencia", key="btn_eliminar_incidencia"):
                 sheet_incidencias.delete_rows(fila_i + 2)
                 st.warning("⚠️ Incidencia eliminada.")
     elif clave:
         st.error("❌ Contraseña incorrecta")
-
