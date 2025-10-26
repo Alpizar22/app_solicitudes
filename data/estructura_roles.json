@@ -1,88 +1,82 @@
 {
-    "Directores Académicos": {
-        "Director académico": [
-            "Director de programa"
-        ]
-    },
-    "Ejecutivos": {
-        "Ejecutivo AC": [
-            "Ejecutivo RC Feeder",
-            "Ejecutivo de atención y captación Online",
-            "PG GDL Ejecutivo AC Doctorado",
-            "Ejecutivo de Educación continua",
-            "UG GDL Ejecutivo AC CYT",
-            "Tabasco Ejecutivo AC K12",
-            "PG GDL Ejecutivo AC Maestría",
-            "K12 Ejecutivo de AC High School",
-            "Tabasco Ejecutivo AC Licenciaturas",
-            "Tabasco Ejecutivo AC Posgrados",
-            "K12 Ejecutivo de AC Colegio Lomas del Valle",
-            "UG GDL Ejecutivo AC Salud",
-            "K12 Ejecutivo de AC Antonio Caso",
-            "UG GDL Ejecutivo AC Administrativas",
-            "K12 Ejecutivo de AC Colegio Lomas del Valle Santa"
-        ]
-    },
-    "Consulta": {
-        "Consulta": [
-            "KAM UG",
-            "Rol genérico",
-            "Director de comunicación y MKT"
-        ]
-    },
-    "Marketing": {
-        "Growth Mkt": [
-            "Supervisor de MKT",
-            "Agente MKT"
-        ],
-        "Supervisor/Jefatura": [
-            "Jefatura K12"
-        ]
-    },
-    "Contact Center": {
-        "Agente de Call Center": [
-            "Agente de Call Center UG GDL CS Y MEDICINA",
-            "Agente de Call Center Tabasco Pre-Lic-PG",
-            "Agente de Call Center UG GDL DCYT",
-            "Agente de Call Center UG GDL CSEA",
-            "Agente de Call Center Online PG",
-            "Agente de Call Center Online Lic",
-            "Agente de Call Center Posgrados",
-            "Agente de Call Center Idiomas"
-        ]
-    },
-    "Supervisores": {
-        "Supervisor/Jefatura": [
-            "Supervisor captación PG",
-            "Supervisor de Feeder"
-        ]
-    },
-    "Analista": {
-        "Analista Datos": [
-            "Analista de datos",
-            "Especialistas de datos"
-        ],
-        "Consulta": [
-            "Especialista de datos CC"
-        ]
-    },
-    "Sistemas": {
-        "Sistemas": [
-            "Sistemas"
-        ]
-    },
-    "Supervisor": {
-        "Supervisor/Jefatura": [
-            "Supervisor captación UG",
-            "Supervisor de MKT",
-            "Jefatura Tabasco",
-            "KAM PG",
-            "Supervisor de Call Center",
-            "Jefatura Online",
-            "Gerente de Call Center"
-        ],
-        "Consulta": [
-            "Gerente de captación Licenciatura / Posgrados"
-        ]
-    }
+  "Analista": {
+    "Analista Datos": [
+      "Analista de datos",
+      "Especialistas de datos"
+    ],
+    "Consulta": [
+      "Especialista de datos CC"
+    ]
+  },
+  "Contact Center": {
+    "Agente de Call Center": [
+      "Agente de Call Center Idiomas",
+      "Agente de Call Center MEDICINA",
+      "Agente de Call Center Online Lic",
+      "Agente de Call Center Online PG",
+      "Agente de Call Center Posgrados",
+      "Agente de Call Center SALUD",
+      "Agente de Call Center Tabasco Pre-Lic-PG",
+      "Agente de Call Center UG GDL CSEA",
+      "Agente de Call Center UG GDL DCYT"
+    ]
+  },
+  "Consulta": {
+    "Consulta": [
+      "Director de comunicación y MKT",
+      "KAM UG",
+      "Rol genérico"
+    ]
+  },
+  "Directores Académicos": {
+    "Director académico": [
+      "Director de programa"
+    ]
+  },
+  "Ejecutivos": {
+    "Ejecutivo AC": [
+      "Ejecutivo de Educación continua",
+      "Ejecutivo de atención y captación Online",
+      "Ejecutivo RC Feeder",
+      "K12 Ejecutivo de AC Antonio Caso",
+      "K12 Ejecutivo de AC Colegio Lomas del Valle",
+      "K12 Ejecutivo de AC Colegio Lomas del Valle Santa",
+      "K12 Ejecutivo de AC High School",
+      "PG GDL Ejecutivo AC Doctorado",
+      "PG GDL Ejecutivo AC Maestría",
+      "Tabasco Ejecutivo AC K12",
+      "Tabasco Ejecutivo AC Licenciaturas",
+      "Tabasco Ejecutivo AC Posgrados",
+      "UG GDL Ejecutivo AC Administrativas",
+      "UG GDL Ejecutivo AC CYT",
+      "UG GDL Ejecutivo AC Salud"
+    ]
+  },
+  "Marketing": {
+    "Growth Mkt": [
+      "Agente MKT",
+      "Supervisor de MKT"
+    ],
+    "Supervisor/Jefatura": [
+      "Jefatura K12"
+    ]
+  },
+  "Sistemas": {
+    "Sistemas": [
+      "Sistemas"
+    ]
+  },
+  "Supervisores": {
+    "Supervisor/Jefatura": [
+      "Gerente de Call Center",
+      "Jefatura Online",
+      "Jefatura Tabasco",
+      "KAM PG",
+      "Supervisor captación PG",
+      "Supervisor captación UG",
+      "Supervisor de Call Center",
+      "Supervisor de Feeder",
+      "Supervisor de MKT"
+    ]
+  }
 }

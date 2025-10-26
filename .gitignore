@@ -1,1 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Config y secretos
+.env
 .streamlit/secrets.toml
+
+# Datos locales (Excel reales, incidencias, temporales)
+*.xlsx
+data/
+archivos_incidencias/
+~$*.xlsx
+
+# Streamlit / secretos
+.streamlit/secrets.toml
+gs_credentials.json
+credenciales.json
+google_service_account.json
+
+# Python
+__pycache__/
+*.pyc
+*.log
+
+# Local files
+*.xlsx
+*.xls
