@@ -104,7 +104,8 @@ def get_book():
         st.stop()
 
 # Esta línea se queda igual
-book = get_book()try:
+book = get_book()
+try:
     sheet_solicitudes = book.worksheet("Sheet1")
     sheet_incidencias = book.worksheet("Incidencias")
     sheet_quejas      = book.worksheet("Quejas")
