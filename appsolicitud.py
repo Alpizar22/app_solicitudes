@@ -82,31 +82,29 @@ else:
 # -------------------------
 # Conexión a Google Sheets
 # -------------------------
+# REEMPLAZA TU get_book() CON ESTA VERSIÓN
+@st.cache_resource # Usamos caché para la conexión
 def get_book():
-    svc = st.secrets.get("google_service_account", {})
-    # Opción A: secreto pegado como objeto (recomendado)
-    if isinstance(svc, dict) and svc.get("type") == "service_account":
-        creds = Credentials.from_service_account_info(svc, scopes=SCOPES)
-    else:
-        # Opción B: tienes una cadena con el JSON completo (triple-comillas)
-        svc_json_str = st.secrets.get("google_service_account_json", "")
-        if svc_json_str:
-            info = json.loads(svc_json_str)
-            creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-        else:
-            # Último recurso: ruta a archivo (solo si REALMENTE existe en el servidor)
-            json_path = st.secrets.get("google_service_account", {}).get("json_path", "")
-            if not json_path:
-                st.error("No hay credenciales de servicio en secrets. Sube el JSON a secrets (bloque google_service_account).")
-                st.stop()
-            creds = Credentials.from_service_account_file(json_path, scopes=SCOPES)
+    # Construye las credenciales directamente desde el diccionario de secretos
+    # Asegúrate que tu secrets.toml tenga [google_service_account] con todas las claves dentro
+    creds_dict = st.secrets.get("google_service_account") 
+    if not creds_dict:
+        st.error("❗ No se encontró la sección [google_service_account] en secrets.toml o está vacía.")
+        st.stop()
+        
+    try:    
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        return with_backoff(client.open_by_key, SHEET_ID)
+    except Exception as e:
+        st.error(f"❌ Error al conectar con Google Sheets usando credenciales de secrets: {e}")
+        # Muestra las claves que SÍ encontró para depurar (¡EXCEPTO private_key!)
+        keys_found = {k: v for k, v in creds_dict.items() if k != 'private_key'}
+        st.error(f"Claves encontradas en [google_service_account]: {list(keys_found.keys())}")
+        st.stop()
 
-    client = gspread.authorize(creds)
-    return with_backoff(client.open_by_key, SHEET_ID)
-
-
-book = get_book()
-try:
+# Esta línea se queda igual
+book = get_book()try:
     sheet_solicitudes = book.worksheet("Sheet1")
     sheet_incidencias = book.worksheet("Incidencias")
     sheet_quejas      = book.worksheet("Quejas")
