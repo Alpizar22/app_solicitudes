@@ -69,13 +69,9 @@ USUARIOS_XLSX_PATH = st.secrets.get("security", {}).get("usuarios_excel_path", "
 SHEET_ID = (st.secrets.get("sheets", {}).get("prod_id") if APP_MODE == "prod"
             else st.secrets.get("sheets", {}).get("dev_id"))
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-json_path = st.secrets.get("google_service_account", {}).get("json_path", "")
 
 if not SHEET_ID:
     st.error("❗ No se encontró SHEET_ID en [sheets] de secrets.toml")
-    st.stop()
-if not json_path:
-    st.error("❗ No se encontró google_service_account.json_path en secrets.toml")
     st.stop()
 
 if APP_MODE == "dev":
@@ -87,9 +83,27 @@ else:
 # Conexión a Google Sheets
 # -------------------------
 def get_book():
-    creds = Credentials.from_service_account_file(json_path, scopes=SCOPES)
+    svc = st.secrets.get("google_service_account", {})
+    # Opción A: secreto pegado como objeto (recomendado)
+    if isinstance(svc, dict) and svc.get("type") == "service_account":
+        creds = Credentials.from_service_account_info(svc, scopes=SCOPES)
+    else:
+        # Opción B: tienes una cadena con el JSON completo (triple-comillas)
+        svc_json_str = st.secrets.get("google_service_account_json", "")
+        if svc_json_str:
+            info = json.loads(svc_json_str)
+            creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        else:
+            # Último recurso: ruta a archivo (solo si REALMENTE existe en el servidor)
+            json_path = st.secrets.get("google_service_account", {}).get("json_path", "")
+            if not json_path:
+                st.error("No hay credenciales de servicio en secrets. Sube el JSON a secrets (bloque google_service_account).")
+                st.stop()
+            creds = Credentials.from_service_account_file(json_path, scopes=SCOPES)
+
     client = gspread.authorize(creds)
     return with_backoff(client.open_by_key, SHEET_ID)
+
 
 book = get_book()
 try:
