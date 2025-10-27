@@ -81,78 +81,46 @@ def now_mx_str() -> str:
 # -------------------------
 st.set_page_config(page_title="Gestor Zoho CRM", layout="wide")
 
-APP_MODE = st.secrets.get("mode", "dev")
+APP_MODE   = st.secrets.get("mode", "dev")
 SEND_EMAILS = bool(st.secrets.get("email", {}).get("send_enabled", False))
-SHEET_ID = (st.secrets.get("sheets", {}).get("prod_id") if APP_MODE == "prod"
-            else st.secrets.get("sheets", {}).get("dev_id"))
-# Scopes separados
-SHEETS_SCOPES  = [
+SHEET_ID   = (st.secrets.get("sheets", {}).get("prod_id")
+              if APP_MODE == "prod"
+              else st.secrets.get("sheets", {}).get("dev_id"))
+
+# --- Scopes separados ---
+SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
 STORAGE_SCOPES = [
-    "https://www.googleapis.com/auth/cloud-platform"   # <— más amplio y fiable
+    "https://www.googleapis.com/auth/cloud-platform"  # recomendado para GCS
 ]
 
+# --- Utilidades de credenciales por scope ---
 @st.cache_resource(ttl=3600)
 def get_google_credentials_for_scopes(scopes):
     svc = st.secrets.get("google_service_account")
     if not svc:
         st.error("❗ Falta [google_service_account] en secrets.")
         st.stop()
-    return Credentials.from_service_account_info(svc, scopes=scopes)
+    try:
+        return Credentials.from_service_account_info(svc, scopes=scopes)
+    except Exception as e:
+        st.error(f"❌ Error al crear credenciales desde secrets: {e}")
+        st.stop()
 
+# --- Cliente gspread (Sheets) ---
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     creds = get_google_credentials_for_scopes(SHEETS_SCOPES)
     return gspread.authorize(creds)
 
+# --- Abrir el Google Sheet ---
 @st.cache_resource(ttl=3600)
-def get_gcs_client():
-    creds = get_google_credentials_for_scopes(STORAGE_SCOPES)   # <— usa cloud-platform
-    project_id = st.secrets["google_service_account"]["project_id"]
-    return storage.Client(project=project_id, credentials=creds)
-
-# --- Leer nombre del bucket de GCS ---
-GCS_BUCKET_NAME = st.secrets.get("google_cloud_storage", {}).get("bucket_name", "")
-if not GCS_BUCKET_NAME and APP_MODE == "prod":
-    st.warning("⚠️ No se encontró google_cloud_storage.bucket_name en secrets. No se podrán subir archivos a GCS.")
-
-if not SHEET_ID:
-    st.error("❗ No se encontró SHEET_ID en [sheets] de secrets.toml")
-    st.stop()
-
-# (La info de entorno se muestra al final en la sidebar)
-# -------------------------
-# Conexión a Google Sheets
-# -------------------------
-@st.cache_resource(ttl=3600) # Cachear conexión por 1 hora
-def get_google_credentials():
-    """Obtiene las credenciales de Google desde secrets."""
-    creds_dict = st.secrets.get("google_service_account")
-    if not creds_dict:
-        st.error("❗ No se encontró [google_service_account] en secrets.")
-        st.stop()
-    try:
-        # Usar SCOPES aquí asegura que las credenciales tengan los permisos necesarios
-        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    except Exception as e:
-        st.error(f"❌ Error al crear credenciales desde secrets: {e}")
-        st.stop()
-
-@st.cache_resource(ttl=3600) # Cachear cliente gspread
-def get_gspread_client():
-    """Obtiene el cliente autorizado de gspread."""
-    credentials = get_google_credentials()
-    try:
-        return gspread.authorize(credentials)
-    except Exception as e:
-        st.error(f"❌ Error al autorizar cliente gspread: {e}")
-        st.stop()
-
-@st.cache_resource(ttl=3600) # Cachear el libro abierto
 def get_book():
-    """Abre el Google Sheet por su ID."""
+    if not SHEET_ID:
+        st.error("❗ No se encontró SHEET_ID en [sheets] de secrets.toml")
+        st.stop()
     client = get_gspread_client()
     try:
         return with_backoff(client.open_by_key, SHEET_ID)
@@ -162,30 +130,30 @@ def get_book():
 
 book = get_book()
 
-# --- Cliente para Google Cloud Storage ---
-@st.cache_resource(ttl=3600) # Cachear cliente GCS
+# --- Google Cloud Storage ---
+GCS_BUCKET_NAME = st.secrets.get("google_cloud_storage", {}).get("bucket_name", "")
+
+@st.cache_resource(ttl=3600)
 def get_gcs_client():
-    """Crea y retorna un cliente para Google Cloud Storage."""
-    credentials = get_google_credentials() # Reutiliza las credenciales
+    """Cliente para GCS con scopes de cloud-platform."""
+    creds = get_google_credentials_for_scopes(STORAGE_SCOPES)
+    project_id = st.secrets["google_service_account"]["project_id"]
     try:
-        storage_client = storage.Client(credentials=credentials)
-        # Verificar conexión listando buckets (opcional, pero útil para diagnóstico)
-        # list(storage_client.list_buckets(max_results=1))
-        return storage_client
+        return storage.Client(project=project_id, credentials=creds)
     except Exception as e:
         st.error(f"❌ Error al crear cliente GCS: {e}")
-        return None # No detener la app, solo la subida fallará
+        return None
 
-# --- Función para subir archivo a GCS ---
+# --- Subida a GCS con URL firmada (UBLA friendly) ---
 from datetime import timedelta
 
 def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes=720):
     """
     Sube un archivo a GCS y devuelve una URL firmada temporal (no hace público el objeto).
-    - file_buffer: st.file_uploader file-like
-    - filename_in_bucket: nombre final en el bucket (e.g. "abc123.png")
-    - content_type: MIME del archivo (e.g. "image/png")
-    - expires_minutes: minutos de validez de la URL firmada
+    - file_buffer: archivo de st.file_uploader (file-like)
+    - filename_in_bucket: nombre final en el bucket (p.ej., 'abc123.png')
+    - content_type: MIME (p.ej., 'image/png')
+    - expires_minutes: vigencia de la URL firmada
     """
     client = get_gcs_client()
     if not client:
@@ -199,11 +167,9 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes
         bucket = client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(filename_in_bucket)
 
-        # Sube el contenido desde el buffer
-        file_buffer.seek(0)  # asegurar inicio
+        file_buffer.seek(0)
         blob.upload_from_file(file_buffer, content_type=content_type, rewind=True)
 
-        # Genera URL firmada (compatible con Uniform Bucket-Level Access)
         signed_url = blob.generate_signed_url(
             version="v4",
             expiration=timedelta(minutes=expires_minutes),
@@ -216,7 +182,6 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes
     except Exception as e:
         st.error(f"❌ Error al subir archivo a GCS: {e}")
         return None
-
 # --- Conexión a las pestañas (Worksheets) ---
 # Usar un diccionario para manejar las hojas
 sheets = {}
