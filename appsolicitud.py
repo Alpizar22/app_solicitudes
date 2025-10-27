@@ -15,6 +15,7 @@ from google.oauth2.service_account import Credentials
 from google.cloud import storage  # GCS
 import yagmail
 from zoneinfo import ZoneInfo
+from datetime import timedelta
 
 # -------------------------
 # Límites de subida (AJUSTA si deseas)
@@ -179,7 +180,15 @@ def get_gcs_client():
         return None
 
 # --- Subida a GCS usando make_public (tu lógica actual) ---
-def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
+# --- Subida a GCS con URL firmada (compatible con UBLA/PAP) ---
+def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes=720):
+    """
+    Sube un archivo a GCS y devuelve una URL firmada temporal (no usa ACLs ni make_public).
+    - file_buffer: archivo de st.file_uploader (file-like)
+    - filename_in_bucket: nombre final en el bucket (p.ej., 'abc123.png')
+    - content_type: MIME (p.ej., 'image/png' o 'video/mp4')
+    - expires_minutes: vigencia de la URL firmada
+    """
     client = get_gcs_client()
     if not client:
         st.error("❌ No se puede subir a GCS: cliente no disponible.")
@@ -187,18 +196,29 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
     if not GCS_BUCKET_NAME:
         st.error("❌ No se puede subir a GCS: falta google_cloud_storage.bucket_name en secrets.")
         return None
+
     try:
         bucket = client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(filename_in_bucket)
+
+        # subir contenido
         file_buffer.seek(0)
         with_backoff(blob.upload_from_file, file_buffer, content_type=content_type, rewind=True)
-        with_backoff(blob.make_public)
-        public_url = blob.public_url
+
+        # generar URL firmada (no pública, pero accesible con el link)
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=expires_minutes),
+            method="GET",
+        )
+
         st.toast("☁️ Archivo subido a GCS.", icon="☁️")
-        return public_url
+        return signed_url
+
     except Exception as e:
         st.error(f"❌ Error al subir archivo a GCS: {e}")
         return None
+
 
 # -------------------------
 # Conexión a las hojas/worksheets
