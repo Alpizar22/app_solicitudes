@@ -85,11 +85,33 @@ APP_MODE = st.secrets.get("mode", "dev")
 SEND_EMAILS = bool(st.secrets.get("email", {}).get("send_enabled", False))
 SHEET_ID = (st.secrets.get("sheets", {}).get("prod_id") if APP_MODE == "prod"
             else st.secrets.get("sheets", {}).get("dev_id"))
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"] # Drive scope no afecta GCS
-
-STORAGE_SCOPES = [
-    "https://www.googleapis.com/auth/devstorage.read_write"  # o "https://www.googleapis.com/auth/cloud-platform"
+# Scopes separados
+SHEETS_SCOPES  = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
 ]
+STORAGE_SCOPES = [
+    "https://www.googleapis.com/auth/cloud-platform"   # <— más amplio y fiable
+]
+
+@st.cache_resource(ttl=3600)
+def get_google_credentials_for_scopes(scopes):
+    svc = st.secrets.get("google_service_account")
+    if not svc:
+        st.error("❗ Falta [google_service_account] en secrets.")
+        st.stop()
+    return Credentials.from_service_account_info(svc, scopes=scopes)
+
+@st.cache_resource(ttl=3600)
+def get_gspread_client():
+    creds = get_google_credentials_for_scopes(SHEETS_SCOPES)
+    return gspread.authorize(creds)
+
+@st.cache_resource(ttl=3600)
+def get_gcs_client():
+    creds = get_google_credentials_for_scopes(STORAGE_SCOPES)   # <— usa cloud-platform
+    project_id = st.secrets["google_service_account"]["project_id"]
+    return storage.Client(project=project_id, credentials=creds)
 
 # --- Leer nombre del bucket de GCS ---
 GCS_BUCKET_NAME = st.secrets.get("google_cloud_storage", {}).get("bucket_name", "")
