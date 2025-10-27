@@ -549,7 +549,7 @@ elif seccion == "🛠️ Incidencias CRM":
             correo_i = st.text_input("Correo de quien solicita (*)")
             categoria = st.selectbox( # (...)
                  "Categoría",
-                 ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Otros","Cambio de Periodo,"Cursos Zoho","Asignación"]
+                 ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Otros","Cambio de Periodo","Cursos Zoho","Asignación"]
             )
         with col_b:
             asunto = st.text_input("Asunto o título (*)")
