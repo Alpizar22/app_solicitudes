@@ -155,8 +155,16 @@ def get_gcs_client():
         return None # No detener la app, solo la subida fallará
 
 # --- Función para subir archivo a GCS ---
-def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
-    """Sube un archivo (desde buffer) a GCS y lo hace público."""
+from datetime import timedelta
+
+def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes=720):
+    """
+    Sube un archivo a GCS y devuelve una URL firmada temporal (no hace público el objeto).
+    - file_buffer: st.file_uploader file-like
+    - filename_in_bucket: nombre final en el bucket (e.g. "abc123.png")
+    - content_type: MIME del archivo (e.g. "image/png")
+    - expires_minutes: minutos de validez de la URL firmada
+    """
     client = get_gcs_client()
     if not client:
         st.error("❌ No se puede subir a GCS: cliente no disponible.")
@@ -167,24 +175,24 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
 
     try:
         bucket = client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(filename_in_bucket) # Define el 'archivo' en el bucket
+        blob = bucket.blob(filename_in_bucket)
 
-        # Sube los datos desde el buffer en memoria
-        file_buffer.seek(0) # Asegura estar al inicio del buffer
-        blob.upload_from_file(file_buffer, content_type=content_type)
+        # Sube el contenido desde el buffer
+        file_buffer.seek(0)  # asegurar inicio
+        blob.upload_from_file(file_buffer, content_type=content_type, rewind=True)
 
-        # Hacer el archivo públicamente legible (IMPORTANTE)
-        blob.make_public()
+        # Genera URL firmada (compatible con Uniform Bucket-Level Access)
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=expires_minutes),
+            method="GET",
+        )
 
-        public_url = blob.public_url
-        print(f"Archivo subido a GCS. URL pública: {public_url}")
-        st.toast(f"Archivo subido a GCS.", icon="☁️")
-        return public_url # Retorna la URL pública
+        st.toast("☁️ Archivo subido a GCS.", icon="☁️")
+        return signed_url
 
     except Exception as e:
         st.error(f"❌ Error al subir archivo a GCS: {e}")
-        # Ofrecer más detalles si es posible
-        if hasattr(e, 'message'): st.error(f"   Detalles: {e.message}")
         return None
 
 # --- Conexión a las pestañas (Worksheets) ---
