@@ -87,6 +87,10 @@ SHEET_ID = (st.secrets.get("sheets", {}).get("prod_id") if APP_MODE == "prod"
             else st.secrets.get("sheets", {}).get("dev_id"))
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"] # Drive scope no afecta GCS
 
+STORAGE_SCOPES = [
+    "https://www.googleapis.com/auth/devstorage.read_write"  # o "https://www.googleapis.com/auth/cloud-platform"
+]
+
 # --- Leer nombre del bucket de GCS ---
 GCS_BUCKET_NAME = st.secrets.get("google_cloud_storage", {}).get("bucket_name", "")
 if not GCS_BUCKET_NAME and APP_MODE == "prod":
