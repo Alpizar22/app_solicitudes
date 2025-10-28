@@ -35,20 +35,19 @@
   },
   "Ejecutivos": {
     "Ejecutivo AC": [
-      "Ejecutivo de Educación continua",
       "Ejecutivo de atención y captación Online",
-      "Ejecutivo RC Feeder",
+      "Ejecutivo de Educación continua",
       "K12 Ejecutivo de AC Antonio Caso",
       "K12 Ejecutivo de AC Colegio Lomas del Valle",
       "K12 Ejecutivo de AC Colegio Lomas del Valle Santa",
       "K12 Ejecutivo de AC High School",
-      "PG GDL Ejecutivo AC Doctorado",
       "PG GDL Ejecutivo AC Maestría",
       "Tabasco Ejecutivo AC K12",
       "Tabasco Ejecutivo AC Licenciaturas",
       "Tabasco Ejecutivo AC Posgrados",
       "UG GDL Ejecutivo AC Administrativas",
       "UG GDL Ejecutivo AC CYT",
+      "UG GDL Ejecutivo AC Medicina",
       "UG GDL Ejecutivo AC Salud"
     ]
   },
@@ -80,3 +79,4 @@
     ]
   }
 }
+

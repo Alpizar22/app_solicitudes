@@ -2,10 +2,9 @@ import os
 import json
 import time, random
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 from pathlib import Path
-import io
 
 import streamlit as st
 import pandas as pd
@@ -15,11 +14,10 @@ from google.oauth2.service_account import Credentials
 from google.cloud import storage  # GCS
 import yagmail
 from zoneinfo import ZoneInfo
-from datetime import timedelta
 
-# -------------------------
-# Límites de subida (AJUSTA si deseas)
-# -------------------------
+# =========================
+# Límites de subida
+# =========================
 MAX_IMAGE_MB = 10   # imágenes hasta 10 MB
 MAX_VIDEO_MB = 50   # videos   hasta 50 MB
 _MB = 1024 * 1024
@@ -30,10 +28,7 @@ IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
 VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.ogg'}
 
 def _guess_is_image_or_video(file_name: str, mime: str | None):
-    """
-    Devuelve ('image'|'video'|None) y la extensión (en minúsculas).
-    Usa MIME si existe, si no cae a extensión.
-    """
+    """Devuelve ('image'|'video'|None) y la extensión en minúsculas."""
     ext = Path(file_name).suffix.lower()
     if mime:
         if mime.startswith("image/"): return "image", ext
@@ -43,12 +38,10 @@ def _guess_is_image_or_video(file_name: str, mime: str | None):
     return None, ext
 
 def validate_upload_limits(uploaded_file) -> tuple[bool, str]:
-    """
-    Valida tamaño y tipo. Devuelve (ok, mensaje_error_si_hay).
-    """
+    """Valida tamaño y tipo. Devuelve (ok, mensaje_error)."""
     if uploaded_file is None:
         return True, ""
-    kind, ext = _guess_is_image_or_video(uploaded_file.name, getattr(uploaded_file, "type", None))
+    kind, _ext = _guess_is_image_or_video(uploaded_file.name, getattr(uploaded_file, "type", None))
     size = getattr(uploaded_file, "size", 0)
     size_mb = size / _MB
 
@@ -62,9 +55,9 @@ def validate_upload_limits(uploaded_file) -> tuple[bool, str]:
         return False, "❌ Solo se permiten imágenes (jpg, png, webp, …) o videos (mp4, mov, webm, …)."
     return True, ""
 
-# -------------------------
-# Utilidades y normalizadores
-# -------------------------
+# =========================
+# Utils
+# =========================
 EMAIL_RE = re.compile(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})', re.I)
 def _email_norm(s: str) -> str:
     if s is None:
@@ -111,27 +104,25 @@ TZ_MX = ZoneInfo("America/Mexico_City")
 def now_mx_str() -> str:
     return datetime.now(TZ_MX).strftime("%d/%m/%Y %H:%M:%S")
 
-# -------------------------
+# =========================
 # Config / secrets
-# -------------------------
+# =========================
 st.set_page_config(page_title="Gestor Zoho CRM", layout="wide")
 
-APP_MODE   = st.secrets.get("mode", "dev")
+APP_MODE    = st.secrets.get("mode", "dev")
 SEND_EMAILS = bool(st.secrets.get("email", {}).get("send_enabled", False))
-SHEET_ID   = (st.secrets.get("sheets", {}).get("prod_id")
-              if APP_MODE == "prod"
-              else st.secrets.get("sheets", {}).get("dev_id"))
+SHEET_ID    = (st.secrets.get("sheets", {}).get("prod_id")
+               if APP_MODE == "prod"
+               else st.secrets.get("sheets", {}).get("dev_id"))
 
-# --- Scopes separados ---
 SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
 STORAGE_SCOPES = [
-    "https://www.googleapis.com/auth/cloud-platform"  # recomendado para GCS
+    "https://www.googleapis.com/auth/cloud-platform"
 ]
 
-# --- Utilidades de credenciales por scope ---
 @st.cache_resource(ttl=3600)
 def get_google_credentials_for_scopes(scopes):
     svc = st.secrets.get("google_service_account")
@@ -144,13 +135,11 @@ def get_google_credentials_for_scopes(scopes):
         st.error(f"❌ Error al crear credenciales desde secrets: {e}")
         st.stop()
 
-# --- Cliente gspread (Sheets) ---
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     creds = get_google_credentials_for_scopes(SHEETS_SCOPES)
     return gspread.authorize(creds)
 
-# --- Abrir el Google Sheet ---
 @st.cache_resource(ttl=3600)
 def get_book():
     if not SHEET_ID:
@@ -179,15 +168,9 @@ def get_gcs_client():
         st.error(f"❌ Error al crear cliente GCS: {e}")
         return None
 
-# --- Subida a GCS usando make_public (tu lógica actual) ---
-# --- Subida a GCS con URL firmada (compatible con UBLA/PAP) ---
 def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes=720):
     """
-    Sube un archivo a GCS y devuelve una URL firmada temporal (no usa ACLs ni make_public).
-    - file_buffer: archivo de st.file_uploader (file-like)
-    - filename_in_bucket: nombre final en el bucket (p.ej., 'abc123.png')
-    - content_type: MIME (p.ej., 'image/png' o 'video/mp4')
-    - expires_minutes: vigencia de la URL firmada
+    Sube a GCS y devuelve URL firmada temporal (compatible con UBLA/PAP).
     """
     client = get_gcs_client()
     if not client:
@@ -196,33 +179,25 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes
     if not GCS_BUCKET_NAME:
         st.error("❌ No se puede subir a GCS: falta google_cloud_storage.bucket_name en secrets.")
         return None
-
     try:
         bucket = client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(filename_in_bucket)
-
-        # subir contenido
         file_buffer.seek(0)
         with_backoff(blob.upload_from_file, file_buffer, content_type=content_type, rewind=True)
-
-        # generar URL firmada (no pública, pero accesible con el link)
         signed_url = blob.generate_signed_url(
             version="v4",
             expiration=timedelta(minutes=expires_minutes),
             method="GET",
         )
-
         st.toast("☁️ Archivo subido a GCS.", icon="☁️")
         return signed_url
-
     except Exception as e:
         st.error(f"❌ Error al subir archivo a GCS: {e}")
         return None
 
-
-# -------------------------
-# Conexión a las hojas/worksheets
-# -------------------------
+# =========================
+# Hojas / Worksheets
+# =========================
 sheets = {}
 required_sheets = ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]
 try:
@@ -240,7 +215,9 @@ except Exception as e:
     st.error(f"❌ Error inesperado al obtener hojas: {e}")
     st.stop()
 
-# --- Lector de datos (Sin caché) ---
+# =========================
+# Lectores de datos (SIN caché)
+# =========================
 def get_records_simple(_ws) -> pd.DataFrame:
     ws_title = _ws.title
     try:
@@ -257,9 +234,9 @@ def get_records_simple(_ws) -> pd.DataFrame:
         st.error(f"Error al leer '{ws_title}': {e}")
         return pd.DataFrame()
 
-# -------------------------
-# Datos locales (JSON) y Usuarios (desde GSheets)
-# -------------------------
+# =========================
+# Datos locales y usuarios
+# =========================
 estructura_roles = load_json_safe("data/estructura_roles.json")
 numeros_por_rol  = load_json_safe("data/numeros_por_rol.json")
 horarios_dict    = load_json_safe("data/horarios.json")
@@ -277,14 +254,15 @@ def cargar_usuarios_df():
         return pd.DataFrame(columns=["Contraseña","Correo"])
 
 usuarios_df = cargar_usuarios_df()
-usuarios_dict = {str(p): _email_norm(c)
-                 for p, c in zip(usuarios_df.get("Contraseña", []),
-                                 usuarios_df.get("Correo", []))
-                 if str(p)}
+usuarios_dict = {
+    str(p): _email_norm(c)
+    for p, c in zip(usuarios_df.get("Contraseña", []), usuarios_df.get("Correo", []))
+    if str(p)
+}
 
-# -------------------------
-# Email, Sesión, Login/Logout
-# -------------------------
+# =========================
+# Email / Sesión
+# =========================
 def enviar_correo(asunto, mensaje_resumen, copia_a):
     if not SEND_EMAILS:
         print("Envío de correo deshabilitado.")
@@ -326,6 +304,7 @@ def do_login(correo):
     st.session_state.session_id = str(uuid4())
     st.session_state.login_time = datetime.now(TZ_MX)
     log_event(st.session_state.usuario_logueado, "login", st.session_state.session_id)
+    st.rerun()
 
 def do_logout():
     dur = ""
@@ -339,14 +318,33 @@ def do_logout():
         if key in st.session_state:
             del st.session_state[key]
     st.success("Sesión cerrada.")
+    st.rerun()
 
+# =========================
 # Estado inicial
+# =========================
 if "usuario_logueado" not in st.session_state:
     st.session_state.usuario_logueado = None
 
-# -------------------------
+# =========================
+# Helpers de cascada (Área → Perfil → Rol)
+# =========================
+def ensure_cascade_state():
+    if "sel_area"   not in st.session_state: st.session_state.sel_area   = "Selecciona..."
+    if "sel_perfil" not in st.session_state: st.session_state.sel_perfil = "Selecciona..."
+    if "sel_rol"    not in st.session_state: st.session_state.sel_rol    = "Selecciona..."
+
+def on_change_area():
+    # Resetear dependientes
+    st.session_state.sel_perfil = "Selecciona..."
+    st.session_state.sel_rol    = "Selecciona..."
+
+def on_change_perfil():
+    st.session_state.sel_rol = "Selecciona..."
+
+# =========================
 # Navegación (Sidebar)
-# -------------------------
+# =========================
 nav_options = ["🔍 Ver el estado de mis solicitudes",
                "🌟 Solicitudes CRM",
                "🛠️ Incidencias CRM",
@@ -376,9 +374,7 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
             if submitted:
                 clave_str = str(clave).strip()
                 if clave_str in usuarios_dict:
-                    do_login(usuarios_dict[clave_str])
-                    st.success(f"Bienvenido, {st.session_state.usuario_logueado}")
-                    st.rerun()
+                    do_login(usuarios_dict[clave_str])  # hace rerun
                 else:
                     st.error("❌ Contraseña incorrecta")
 
@@ -386,8 +382,7 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
     elif st.session_state.get("usuario_logueado"):
         st.info(f"Usuario: **{st.session_state.usuario_logueado}**")
         if st.button("Cerrar sesión"):
-            do_logout()
-            st.rerun()
+            do_logout()  # hace rerun
 
         # -------- Solicitudes --------
         st.subheader("📋 Solicitudes registradas")
@@ -397,6 +392,7 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
         if "SolicitanteS" in df_s.columns:
             df_s['SolicitanteS'] = df_s['SolicitanteS'].astype(str)
             df_mias = df_s[df_s["SolicitanteS"].map(_email_norm) == st.session_state.usuario_logueado].copy()
+            # Ordenar por fecha si la tienes en formato legible
             df_mias = df_mias.sort_values(by="FechaS", ascending=False)
         else:
             st.warning("⚠️ No se encontró 'SolicitanteS' en 'Sheet1'.")
@@ -406,7 +402,7 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
 
         for index, row in df_mias.iterrows():
             with st.container():
-                estado_norm = _norm(row.get("EstadoS", ""))
+                estado_norm = _norm(row.get("EstadoS", ""))  # atendido/en proceso/pendiente
                 sat_val_raw = row.get("SatisfaccionS", "")
                 id_unico    = str(row.get("IDS", f"idx_{index}")).strip()
 
@@ -455,146 +451,479 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
                                         st.error("Error: Faltan columnas 'SatisfaccionS' o 'ComentarioSatisfaccionS'.")
                                     except Exception as e:
                                         st.error(f"Error al actualizar celdas: {e}")
-
                             except Exception as e:
                                 st.error(f"Error general al buscar/guardar calificación: {e}")
+
+        st.divider()
+
+        # -------- Incidencias (VUELTA A PONER AQUÍ) --------
+        st.subheader("🛠️ Incidencias reportadas")
+        with st.spinner("Cargando incidencias…"):
+            df_i = get_records_simple(sheet_incidencias)
+
+        if "CorreoI" in df_i.columns:
+            df_i['CorreoI'] = df_i['CorreoI'].astype(str)
+            df_mis_inc = df_i[df_i["CorreoI"].map(_email_norm) == st.session_state.usuario_logueado].copy()
+            df_mis_inc = df_mis_inc.sort_values(by="FechaI", ascending=False)
+        else:
+            st.warning("⚠️ No se encontró 'CorreoI' en 'Incidencias'.")
+            df_mis_inc = pd.DataFrame()
+
+        st.caption(f"{len(df_mis_inc)} incidencias encontradas.")
+
+        for index_i, row_i in df_mis_inc.iterrows():
+            with st.container():
+                estado_norm_i = _norm(row_i.get("EstadoI", ""))
+                sat_val_raw_i = row_i.get("SatisfaccionI", "")
+                id_unico_i    = str(row_i.get("IDI", f"idx_i_{index_i}")).strip()
+                media_url = str(row_i.get("MediaFilenameI", "")).strip()
+
+                row_i_key_base = f"inc_{id_unico_i}"
+                titulo = f"🛠️ {row_i.get('Asunto','Asunto?')} - {row_i.get('FechaI','Fecha?')} — Estado: {row_i.get('EstadoI','?')}"
+                with st.expander(titulo):
+                    st.markdown(f"""
+                    **Categoría:** {row_i.get('CategoriaI','-')} | **Atendido por:** {row_i.get('AtendidoPorI','Pendiente')}
+                    **Link (Zoho):** `{row_i.get('LinkI','-')}`
+                    **Descripción:** {row_i.get('DescripcionI','-')}
+                    **Respuesta:** {row_i.get('RespuestadeSolicitudI','Aún sin respuesta')}
+                    """)
+
+                    # Mostrar adjunto
+                    if media_url and media_url.startswith("http"):
+                        try:
+                            file_ext = Path(media_url).suffix.lower()
+                            st.markdown("---")
+                            st.caption("Archivo Adjunto:")
+                            if file_ext in IMAGE_EXTS:
+                                st.image(media_url)
+                            elif file_ext in VIDEO_EXTS:
+                                st.video(media_url)
+                            else:
+                                st.markdown(f"📎 [Descargar/Ver Archivo]({media_url})")
+                        except Exception:
+                            st.warning(f"No se pudo mostrar adjunto. Enlace: {media_url}")
+                            st.markdown(f"📎 [Ver Archivo]({media_url})")
+                    elif media_url:
+                        st.caption(f"Archivo adjunto (ID/Texto): `{media_url}`")
+
+                    st.markdown(f"**⭐ Satisfacción actual:** {sat_val_raw_i or '(Sin calificar)'}")
 
 # ===================== SECCIÓN: SOLICITUDES CRM =====================
 elif seccion == "🌟 Solicitudes CRM":
     st.markdown("## 🌟 Formulario de Solicitudes Zoho CRM")
 
-    with st.form("solicitud_form", clear_on_submit=True):
-        tipo = st.selectbox("Tipo de Solicitud en Zoho (*)", ["Selecciona...", "Alta", "Modificación", "Baja"])
-        nombre = st.text_input("Nombre Completo de Usuario (*)")
-        correo = st.text_input("Correo institucional (*)")
-        area = st.selectbox("Área (*)", ["Selecciona..."] + list(estructura_roles.keys())) if tipo != "Baja" else "N/A"
+    # --------- Estado inicial (para cascada cuando NO es Baja) ----------
+    if "sel_tipo" not in st.session_state:
+        st.session_state.sel_tipo = "Selecciona..."
+    if "sel_area" not in st.session_state:
+        st.session_state.sel_area = "Selecciona..."
+    if "sel_perfil" not in st.session_state:
+        st.session_state.sel_perfil = "Selecciona..."
+    if "sel_rol" not in st.session_state:
+        st.session_state.sel_rol = "Selecciona..."
+    if "sel_horario" not in st.session_state:
+        st.session_state.sel_horario = "Selecciona..."
+    if "sel_turno" not in st.session_state:
+        st.session_state.sel_turno = ""
 
-        perfil = rol = numero_in = numero_saliente = horario = turno = ""
-        if tipo != "Baja":
-            if area and area != "Selecciona...":
-                perfiles = ["Selecciona..."] + list(estructura_roles[area].keys())
-                perfil = st.selectbox("Perfil (*)", perfiles)
-                if perfil != "Selecciona...":
-                    roles = ["Selecciona..."] + estructura_roles[area][perfil]
-                    rol = st.selectbox("Rol (*)", roles)
-                    if rol in numeros_por_rol:
-                        if numeros_por_rol[rol].get("Numero_IN"):
-                            numero_in = st.selectbox("Número IN", ["No aplica"] + numeros_por_rol[rol]["Numero_IN"])
-                        if numeros_por_rol[rol].get("Numero_Saliente"):
-                            numero_saliente = st.selectbox("Número Saliente", ["No aplica"] + numeros_por_rol[rol]["Numero_Saliente"])
-                    horario = st.selectbox("Horario de trabajo (*)", ["Selecciona..."] + list(horarios_dict.keys()))
-                    if horario != "Selecciona...":
-                        turno = horarios_dict.get(horario, "")
-                        st.text_input("Turno (Automático)", value=turno, disabled=True)
+    # --------- Selección de Tipo (si es Baja, no hay cascada) -----------
+    st.session_state.sel_tipo = st.selectbox(
+        "Tipo de Solicitud en Zoho (*)",
+        ["Selecciona...", "Alta", "Modificación", "Baja"],
+        index=["Selecciona...", "Alta", "Modificación", "Baja"].index(st.session_state.sel_tipo),
+        key="sol_tipo_select_top"
+    )
 
-        correo_solicitante = st.text_input("Correo de quien lo solicita (*)")
-        st.caption("(*) Campos obligatorios")
-        submitted_sol = st.form_submit_button("✔️ Enviar Solicitud")
+    # ============ RUTA SIMPLE PARA BAJA ============
+    if st.session_state.sel_tipo == "Baja":
+        with st.form("solicitud_form_baja", clear_on_submit=True):
+            nombre = st.text_input("Nombre Completo de Usuario (*)", key="baja_nombre")
+            correo = st.text_input("Correo institucional del usuario (*)", key="baja_correo_usuario")
+            correo_solicitante = st.text_input("Correo de quien lo solicita (*)", key="baja_correo_sol")
 
-        if submitted_sol:
-            if tipo == "Selecciona..." or not nombre or not correo or not correo_solicitante:
-                st.warning("⚠️ Faltan campos básicos obligatorios.")
-            elif tipo != "Baja" and (area == "Selecciona..." or perfil == "Selecciona..." or rol == "Selecciona..." or horario == "Selecciona..."):
-                st.warning("⚠️ Faltan campos de Área/Perfil/Rol/Horario.")
-            else:
-                try:
-                    fila_sol = [
-                        now_mx_str(), tipo, nombre.strip(), correo.strip(), area or "", perfil or "", rol or "",
-                        "" if numero_in in ["Selecciona...", "No aplica"] else numero_in,
-                        "" if numero_saliente in ["Selecciona...", "No aplica"] else numero_saliente,
-                        "" if horario == "Selecciona..." else horario,
-                        turno or "", _email_norm(correo_solicitante), "Pendiente",
-                        "", "", str(uuid4()), "", ""
-                    ]
-                    with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
-                    st.success("✅ Solicitud registrada.")
-                    st.balloons()
-                    enviar_correo(
-                        f"Solicitud CRM: {tipo} - {nombre}",
-                        f"Tipo: {tipo}<br>Nombre: {nombre}<br>Correo: {correo}<br>Solicitante: {correo_solicitante}",
-                        correo_solicitante
-                    )
-                except Exception as e:
-                    st.error(f"❌ Error al registrar solicitud: {e}")
-# ===================== SECCIÓN: INCIDENCIAS CRM =====================
-elif seccion == "🛠️ Incidencias CRM":
-    st.markdown("## 🛠️ Reporte de Incidencias")
+            st.caption("(*) Campos obligatorios")
+            submitted_baja = st.form_submit_button("✔️ Enviar Baja", use_container_width=True)
 
-    with st.form("form_incidencia", clear_on_submit=True):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            correo_i = st.text_input("Correo de quien solicita (*)")
-            categoria = st.selectbox(
-                "Categoría",
-                ["Desfase", "Reactivación", "Equivalencia", "Llamadas IVR", "Funcionalidad Zoho", "Mensajes", "Otros"]
-            )
-        with col_b:
-            asunto = st.text_input("Asunto o título (*)")
-            link = st.text_input("Link del registro afectado (Zoho)")
-
-        descripcion = st.text_area("Descripción breve (*)", height=100)
-
-        uploaded_file = st.file_uploader(
-            f"Adjuntar Imagen (≤ {MAX_IMAGE_MB} MB) o Video (≤ {MAX_VIDEO_MB} MB) — Opcional",
-            type=['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp',
-                  'mp4', 'mov', 'avi', 'wmv', 'mkv', 'webm', 'ogg'],
-            accept_multiple_files=False
-        )
-        st.caption("(*) Campos obligatorios")
-        enviado = st.form_submit_button("✔️ Enviar Incidencia")
-
-    if enviado:
-        if not correo_i or not asunto or not descripcion:
-            st.warning("⚠️ Completa correo, asunto y descripción.")
-        else:
-            google_cloud_storage_url = ""
-            proceed_with_save = True
-
-            if uploaded_file is not None:
-                # 1) Validar tamaño y tipo
-                ok, err = validate_upload_limits(uploaded_file)
-                if not ok:
-                    st.error(err)
-                    proceed_with_save = False
-                else:
-                    # 2) Subir a GCS (solo si pasó validaciones)
-                    st.info("Subiendo archivo a Google Cloud Storage...", icon="⏳")
-                    file_extension = Path(uploaded_file.name).suffix.lower()
-                    unique_filename = f"{uuid4()}{file_extension}"
-
-                    public_url = upload_to_gcs(
-                        file_buffer=uploaded_file,
-                        filename_in_bucket=unique_filename,
-                        content_type=(uploaded_file.type or "application/octet-stream")
-                    )
-                    if public_url:
-                        google_cloud_storage_url = public_url
-                    else:
-                        st.warning("No se pudo adjuntar el archivo. La incidencia se registrará sin adjunto.")
-
-            # Si deseas BLOQUEAR el guardado cuando falle el adjunto, descomenta:
-            # if not proceed_with_save:
-            #     st.stop()
+        if submitted_baja:
+            if not nombre or not correo or not correo_solicitante:
+                st.warning("⚠️ Faltan campos obligatorios.")
+                st.stop()
 
             try:
-                header_i = sheet_incidencias.row_values(1)
-                fila_inc = [
-                    now_mx_str(), _email_norm(correo_i), asunto.strip(), categoria,
-                    descripcion.strip(), link.strip(), "Pendiente", "", "", "", "",
-                    str(uuid4()),  # IDI
-                    google_cloud_storage_url  # MediaFilenameI
+                fila_sol = [
+                    now_mx_str(),                       # FechaS
+                    "Baja",                              # TipoS
+                    nombre.strip(),                      # NombreS
+                    correo.strip(),                      # CorreoS
+                    "N/A",                               # AreaS
+                    "N/A",                               # PerfilS
+                    "N/A",                               # RolS
+                    "", "",                              # NumeroINS, NumeroSalienteS
+                    "", "",                              # HorarioS, TurnoS
+                    _email_norm(correo_solicitante),     # SolicitanteS
+                    "Pendiente",                         # EstadoS
+                    "", "",                              # CredencialesZohoS, CredencialesCursosS
+                    str(uuid4()),                        # IDS
+                    "", ""                               # SatisfaccionS, ComentarioSatisfaccionS
                 ]
-                fila_inc = fila_inc[:len(header_i)]
-
-                with_backoff(sheet_incidencias.append_row, fila_inc, value_input_option='USER_ENTERED')
-                st.success("✅ Incidencia registrada.")
+                with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
+                st.success("✅ Baja registrada.")
                 st.balloons()
+                enviar_correo(
+                    f"Solicitud CRM: Baja - {nombre}",
+                    f"Tipo: Baja<br>Nombre: {nombre}<br>Correo usuario: {correo}<br>Solicitante: {correo_solicitante}",
+                    correo_solicitante
+                )
             except Exception as e:
-                st.error(f"❌ Error al registrar en Google Sheets: {e}")
-                try:
-                    st.error(f"Fila que intentó guardar (puede estar truncada): {fila_inc}")
-                except:
-                    pass
+                st.error(f"❌ Error al registrar baja: {e}")
+
+        # IMPORTANTE: salimos aquí; no mostramos cascada ni más campos
+        st.stop()
+
+    # ============ RUTA COMPLETA (Alta / Modificación) ============
+    # Cascada FUERA del form (actualiza en vivo)
+    # ÁREA
+    st.session_state.sel_area = st.selectbox(
+        "Área (*)",
+        ["Selecciona..."] + list(estructura_roles.keys()),
+        index=(["Selecciona..."] + list(estructura_roles.keys())).index(st.session_state.sel_area)
+            if st.session_state.sel_area in (["Selecciona..."] + list(estructura_roles.keys())) else 0,
+        key="sol_area_select"
+    )
+
+    # PERFIL (depende de área)
+    perfiles_disp = ["Selecciona..."]
+    if st.session_state.sel_area in estructura_roles:
+        perfiles_disp += list(estructura_roles[st.session_state.sel_area].keys())
+    if st.session_state.sel_perfil not in perfiles_disp:
+        st.session_state.sel_perfil = "Selecciona..."
+
+    st.session_state.sel_perfil = st.selectbox(
+        "Perfil (*)",
+        perfiles_disp,
+        index=perfiles_disp.index(st.session_state.sel_perfil),
+        key="sol_perfil_select"
+    )
+
+    # ROL (depende de perfil)
+    roles_disp = ["Selecciona..."]
+    if (
+        st.session_state.sel_area in estructura_roles
+        and st.session_state.sel_perfil in estructura_roles[st.session_state.sel_area]
+    ):
+        roles_disp += estructura_roles[st.session_state.sel_area][st.session_state.sel_perfil]
+    if st.session_state.sel_rol not in roles_disp:
+        st.session_state.sel_rol = "Selecciona..."
+
+    st.session_state.sel_rol = st.selectbox(
+        "Rol (*)",
+        roles_disp,
+        index=roles_disp.index(st.session_state.sel_rol),
+        key="sol_rol_select"
+    )
+
+    # HORARIO/TURNO solo si el perfil requiere (Agente CC o Ejecutivo AC)
+    requiere_horario = st.session_state.sel_perfil in {"Agente de Call Center", "Ejecutivo AC"}
+    if requiere_horario:
+        horarios_disp = ["Selecciona..."] + list(horarios_dict.keys())
+        if st.session_state.sel_horario not in horarios_disp:
+            st.session_state.sel_horario = "Selecciona..."
+        st.session_state.sel_horario = st.selectbox(
+            "Horario de trabajo (*)",
+            horarios_disp,
+            index=horarios_disp.index(st.session_state.sel_horario),
+            key="sol_horario_select"
+        )
+        st.session_state.sel_turno = (
+            horarios_dict.get(st.session_state.sel_horario, "")
+            if st.session_state.sel_horario != "Selecciona..." else ""
+        )
+        st.text_input("Turno (Automático)", value=st.session_state.sel_turno, disabled=True, key="sol_turno_display")
+    else:
+        st.session_state.sel_horario = "Selecciona..."
+        st.session_state.sel_turno = ""
+
+    st.markdown("---")
+
+    # --------- FORM con submit (sin callbacks) -----------------------
+    with st.form("solicitud_form_alta_mod", clear_on_submit=True):
+        nombre = st.text_input("Nombre Completo de Usuario (*)", key="sol_nombre_input")
+        correo = st.text_input("Correo institucional del usuario (*)", key="sol_correo_input")
+        correo_solicitante = st.text_input("Correo de quien lo solicita (*)", key="sol_correo_sol_input")
+
+        # Números IN/Saliente solo si el ROL tiene números configurados
+        show_numeros = st.session_state.sel_rol in (numeros_por_rol.keys())
+        numero_in = ""
+        numero_saliente = ""
+        if show_numeros:
+            nums = numeros_por_rol.get(st.session_state.sel_rol, {})
+            nums_in = ["No aplica"] + nums.get("Numero_IN", [])
+            nums_out = ["No aplica"] + nums.get("Numero_Saliente", [])
+            numero_in = st.selectbox("Número IN (*)", nums_in, key="sol_num_in_input")
+            numero_saliente = st.selectbox("Número Saliente (*)", nums_out, key="sol_num_out_input")
+
+        st.caption("(*) Campos obligatorios")
+        submitted_sol = st.form_submit_button("✔️ Enviar Solicitud", use_container_width=True)
+
+    if submitted_sol:
+        tipo    = st.session_state.sel_tipo        # Alta / Modificación
+        area    = st.session_state.sel_area
+        perfil  = st.session_state.sel_perfil
+        rol     = st.session_state.sel_rol
+        horario = st.session_state.sel_horario if requiere_horario else ""
+        turno   = st.session_state.sel_turno if requiere_horario else ""
+
+        if tipo == "Selecciona..." or not nombre or not correo or not correo_solicitante:
+            st.warning("⚠️ Faltan campos básicos obligatorios.")
+            st.stop()
+        if area == "Selecciona..." or perfil == "Selecciona..." or rol == "Selecciona...":
+            st.warning("⚠️ Faltan campos de Área/Perfil/Rol.")
+            st.stop()
+        if requiere_horario and horario == "Selecciona...":
+            st.warning("⚠️ Selecciona un horario de trabajo válido.")
+            st.stop()
+
+        num_in_val  = "" if (not show_numeros or numero_in in ["No aplica", "", None]) else str(numero_in)
+        num_out_val = "" if (not show_numeros or numero_saliente in ["No aplica", "", None]) else str(numero_saliente)
+
+        try:
+            fila_sol = [
+                now_mx_str(),                # FechaS
+                tipo,                        # TipoS
+                nombre.strip(),              # NombreS
+                correo.strip(),              # CorreoS
+                area,                        # AreaS
+                perfil,                      # PerfilS
+                rol,                         # RolS
+                num_in_val,                  # NumeroINS
+                num_out_val,                 # NumeroSalienteS
+                horario,                     # HorarioS
+                turno,                       # TurnoS
+                _email_norm(correo_solicitante),  # SolicitanteS
+                "Pendiente",                 # EstadoS
+                "", "",                      # CredencialesZohoS, CredencialesCursosS
+                str(uuid4()),                # IDS
+                "", ""                       # SatisfaccionS, ComentarioSatisfaccionS
+            ]
+            with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
+            st.success("✅ Solicitud registrada.")
+            st.balloons()
+            enviar_correo(
+                f"Solicitud CRM: {tipo} - {nombre}",
+                f"Tipo: {tipo}<br>Nombre: {nombre}<br>Correo usuario: {correo}<br>Solicitante: {correo_solicitante}",
+                correo_solicitante
+            )
+        except Exception as e:
+            st.error(f"❌ Error al registrar solicitud: {e}")
+
+# ===================== SECCIÓN: SOLICITUDES CRM =====================
+elif seccion == "🌟 Solicitudes CRM":
+    st.markdown("## 🌟 Formulario de Solicitudes Zoho CRM")
+
+    # --------- Estado inicial en session_state ----------
+    ss = st.session_state
+    defaults = {
+        "sol_tipo": "Selecciona...",
+        "sol_area": "Selecciona...",
+        "sol_perfil": "Selecciona...",
+        "sol_rol": "Selecciona...",
+        "sol_horario": "Selecciona...",
+        "sol_turno": "",
+        "sol_nombre": "",
+        "sol_correo_user": "",
+        "sol_correo_solicita": "",
+        "sol_num_in": "No aplica",
+        "sol_num_out": "No aplica",
+    }
+    for k, v in defaults.items():
+        if k not in ss: ss[k] = v
+
+    # ---------------- Orden bonito ----------------
+    # 0) Tipo de solicitud
+    ss.sol_tipo = st.selectbox(
+        "Tipo de Solicitud en Zoho (*)",
+        ["Selecciona...", "Alta", "Modificación", "Baja"],
+        index=["Selecciona...", "Alta", "Modificación", "Baja"].index(ss.sol_tipo),
+        key="sol_tipo_select_top"
+    )
+
+    # ========== RUTA SIMPLE: BAJA ==========
+    if ss.sol_tipo == "Baja":
+        st.markdown("### Datos del usuario a dar de baja")
+        c1, c2 = st.columns(2)
+        with c1:
+            ss.sol_nombre = st.text_input("Nombre Completo de Usuario (*)", value=ss.sol_nombre, key="baja_nombre")
+        with c2:
+            ss.sol_correo_user = st.text_input("Correo institucional del usuario (*)", value=ss.sol_correo_user, key="baja_correo_usuario")
+
+        ss.sol_correo_solicita = st.text_input("Correo de quien lo solicita (*)", value=ss.sol_correo_solicita, key="baja_correo_sol")
+
+        with st.form("solicitud_form_baja", clear_on_submit=True):
+            st.caption("(*) Campos obligatorios")
+            submitted_baja = st.form_submit_button("✔️ Enviar Baja", use_container_width=True)
+
+        if submitted_baja:
+            if not ss.sol_nombre or not ss.sol_correo_user or not ss.sol_correo_solicita:
+                st.warning("⚠️ Faltan campos obligatorios.")
+                st.stop()
+            try:
+                fila_sol = [
+                    now_mx_str(), "Baja", ss.sol_nombre.strip(), ss.sol_correo_user.strip(),
+                    "N/A", "N/A", "N/A", "", "", "", "", _email_norm(ss.sol_correo_solicita),
+                    "Pendiente", "", "", str(uuid4()), "", ""
+                ]
+                with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
+                st.success("✅ Baja registrada.")
+                st.balloons()
+                enviar_correo(
+                    f"Solicitud CRM: Baja - {ss.sol_nombre}",
+                    f"Tipo: Baja<br>Nombre: {ss.sol_nombre}<br>Correo usuario: {ss.sol_correo_user}<br>Solicitante: {ss.sol_correo_solicita}",
+                    ss.sol_correo_solicita
+                )
+                # Limpio mínimos
+                ss.sol_nombre = ss.sol_correo_user = ss.sol_correo_solicita = ""
+            except Exception as e:
+                st.error(f"❌ Error al registrar baja: {e}")
+
+        st.stop()  # No mostrar cascada ni más campos para BAJA
+
+    # ========== RUTA COMPLETA: ALTA / MODIFICACIÓN ==========
+    st.markdown("### 1) Datos básicos del nuevo usuario")
+    c1, c2 = st.columns(2)
+    with c1:
+        ss.sol_nombre = st.text_input("Nombre Completo de Usuario (*)", value=ss.sol_nombre, key="sol_nombre_input")
+    with c2:
+        ss.sol_correo_user = st.text_input("Correo institucional del usuario (*)", value=ss.sol_correo_user, key="sol_correo_input")
+
+    st.markdown("### 2) Definición del puesto (cascada)")
+    # Área
+    areas = ["Selecciona..."] + list(estructura_roles.keys())
+    ss.sol_area = st.selectbox(
+        "Área (*)",
+        areas,
+        index=areas.index(ss.sol_area) if ss.sol_area in areas else 0,
+        key="sol_area_select"
+    )
+    # Reset si cambia área
+    if ss.sol_area == "Selecciona...":
+        ss.sol_perfil, ss.sol_rol = "Selecciona...", "Selecciona..."
+
+    # Perfil (depende de área)
+    perfiles_disp = ["Selecciona..."]
+    if ss.sol_area in estructura_roles:
+        perfiles_disp += list(estructura_roles[ss.sol_area].keys())
+    if ss.sol_perfil not in perfiles_disp:
+        ss.sol_perfil = "Selecciona..."
+
+    ss.sol_perfil = st.selectbox(
+        "Perfil (*)",
+        perfiles_disp,
+        index=perfiles_disp.index(ss.sol_perfil),
+        key="sol_perfil_select"
+    )
+
+    # Rol (depende de perfil)
+    roles_disp = ["Selecciona..."]
+    if ss.sol_area in estructura_roles and ss.sol_perfil in estructura_roles[ss.sol_area]:
+        roles_disp += estructura_roles[ss.sol_area][ss.sol_perfil]
+    if ss.sol_rol not in roles_disp:
+        ss.sol_rol = "Selecciona..."
+
+    ss.sol_rol = st.selectbox(
+        "Rol (*)",
+        roles_disp,
+        index=roles_disp.index(ss.sol_rol),
+        key="sol_rol_select"
+    )
+
+    # 3) Números IN / Saliente (solo si el rol tiene números configurados)
+    show_numeros = ss.sol_rol in numeros_por_rol
+    if show_numeros:
+        st.markdown("### 3) Extensiones y salida")
+        nums_cfg = numeros_por_rol.get(ss.sol_rol, {})
+        nums_in = ["No aplica"] + nums_cfg.get("Numero_IN", [])
+        nums_out = ["No aplica"] + nums_cfg.get("Numero_Saliente", [])
+        c3, c4 = st.columns(2)
+        with c3:
+            ss.sol_num_in = st.selectbox("Número IN (si aplica)", nums_in, index=nums_in.index(ss.sol_num_in) if ss.sol_num_in in nums_in else 0, key="sol_num_in_input")
+        with c4:
+            ss.sol_num_out = st.selectbox("Número Saliente (si aplica)", nums_out, index=nums_out.index(ss.sol_num_out) if ss.sol_num_out in nums_out else 0, key="sol_num_out_input")
+    else:
+        ss.sol_num_in, ss.sol_num_out = "No aplica", "No aplica"
+
+    # 4) Horario / Turno (solo para perfiles CC y Ejecutivo AC)
+    requiere_horario = ss.sol_perfil in {"Agente de Call Center", "Ejecutivo AC"}
+    if requiere_horario:
+        st.markdown("### 4) Horario de trabajo")
+        horarios_disp = ["Selecciona..."] + list(horarios_dict.keys())
+        if ss.sol_horario not in horarios_disp:
+            ss.sol_horario = "Selecciona..."
+        ss.sol_horario = st.selectbox(
+            "Horario de trabajo (*)",
+            horarios_disp,
+            index=horarios_disp.index(ss.sol_horario),
+            key="sol_horario_select"
+        )
+        ss.sol_turno = horarios_dict.get(ss.sol_horario, "") if ss.sol_horario != "Selecciona..." else ""
+        st.text_input("Turno (Automático)", value=ss.sol_turno, disabled=True, key="sol_turno_display")
+    else:
+        ss.sol_horario, ss.sol_turno = "Selecciona...", ""
+
+    # 5) Correo del solicitante
+    st.markdown("### 5) Quién solicita")
+    ss.sol_correo_solicita = st.text_input("Correo de quien lo solicita (*)", value=ss.sol_correo_solicita, key="sol_correo_sol_input")
+
+    # 6) Enviar (botón dentro de un form para clear_on_submit)
+    with st.form("solicitud_form_alta_mod", clear_on_submit=True):
+        st.caption("(*) Campos obligatorios")
+        submitted_sol = st.form_submit_button("✔️ Enviar Solicitud", use_container_width=True)
+
+    if submitted_sol:
+        if ss.sol_tipo == "Selecciona..." or not ss.sol_nombre or not ss.sol_correo_user or not ss.sol_correo_solicita:
+            st.warning("⚠️ Faltan campos básicos obligatorios.")
+            st.stop()
+        if ss.sol_area == "Selecciona..." or ss.sol_perfil == "Selecciona..." or ss.sol_rol == "Selecciona...":
+            st.warning("⚠️ Faltan campos de Área/Perfil/Rol.")
+            st.stop()
+        if requiere_horario and ss.sol_horario == "Selecciona...":
+            st.warning("⚠️ Selecciona un horario de trabajo válido.")
+            st.stop()
+
+        num_in_val  = "" if (not show_numeros or ss.sol_num_in in ["No aplica", "", None]) else str(ss.sol_num_in)
+        num_out_val = "" if (not show_numeros or ss.sol_num_out in ["No aplica", "", None]) else str(ss.sol_num_out)
+
+        try:
+            fila_sol = [
+                now_mx_str(),                  # FechaS
+                ss.sol_tipo,                   # TipoS (Alta/Modificación)
+                ss.sol_nombre.strip(),         # NombreS
+                ss.sol_correo_user.strip(),    # CorreoS
+                ss.sol_area,                   # AreaS
+                ss.sol_perfil,                 # PerfilS
+                ss.sol_rol,                    # RolS
+                num_in_val,                    # NumeroINS
+                num_out_val,                   # NumeroSalienteS
+                (ss.sol_horario if requiere_horario else ""),   # HorarioS
+                (ss.sol_turno if requiere_horario else ""),     # TurnoS
+                _email_norm(ss.sol_correo_solicita),            # SolicitanteS
+                "Pendiente",                   # EstadoS
+                "", "",                        # CredencialesZohoS, CredencialesCursosS
+                str(uuid4()),                  # IDS
+                "", ""                         # SatisfaccionS, ComentarioSatisfaccionS
+            ]
+            with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
+            st.success("✅ Solicitud registrada.")
+            st.balloons()
+            enviar_correo(
+                f"Solicitud CRM: {ss.sol_tipo} - {ss.sol_nombre}",
+                f"Tipo: {ss.sol_tipo}<br>Nombre: {ss.sol_nombre}<br>Correo usuario: {ss.sol_correo_user}<br>Solicitante: {ss.sol_correo_solicita}",
+                ss.sol_correo_solicita
+            )
+            # Limpiar inputs visibles
+            for k in ["sol_nombre","sol_correo_user","sol_correo_solicita","sol_num_in","sol_num_out"]:
+                ss[k] = defaults[k]
+        except Exception as e:
+            st.error(f"❌ Error al registrar solicitud: {e}")
 
 # ===================== SECCIÓN: QUEJAS =====================
 elif seccion == "📝 Mejoras y sugerencias":
@@ -621,7 +950,6 @@ elif seccion == "📝 Mejoras y sugerencias":
                     ]
                     header_q = sheet_quejas.row_values(1)
                     fila_q = fila_q[:len(header_q)]
-
                     with_backoff(sheet_quejas.append_row, fila_q, value_input_option='USER_ENTERED')
                     st.success("✅ Gracias por tu feedback.")
                     st.balloons()
@@ -800,9 +1128,9 @@ elif seccion == "🔐 Zona Admin":
     else:
         st.info("🔒 Ingresa la contraseña admin o usa un correo en la lista blanca para acceder.")
 
-# -------------------------
+# =========================
 # Sidebar final
-# -------------------------
+# =========================
 st.sidebar.divider()
 if st.sidebar.button("♻️ Recargar Página"):
     st.rerun()
@@ -811,5 +1139,3 @@ if APP_MODE == "dev":
     st.sidebar.caption(f"🧪 DEV · `{SHEET_ID}`")
 else:
     st.sidebar.caption(f"🚀 PROD · `{SHEET_ID}`")
-
-# FIN DEL ARCHIVO

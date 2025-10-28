@@ -3,15 +3,15 @@
     "Numero_IN": ["18665016614"],
     "Numero_Saliente": ["3336488890"]
   },
-  "Agente de Call Center K12": {
-    "Numero_IN": ["18665016191"],
-    "Numero_Saliente": ["3336488881"]
+  "Agente de Call Center MEDICINA": {
+    "Numero_IN": ["18665017410"],
+    "Numero_Saliente": ["3336488882"]
   },
-  "Agente de Call Center Online PG": {
+  "Agente de Call Center Online Lic": {
     "Numero_IN": ["18557586260"],
     "Numero_Saliente": ["3336488889"]
   },
-  "Agente de Call Center Online Lic": {
+  "Agente de Call Center Online PG": {
     "Numero_IN": ["18557586260"],
     "Numero_Saliente": ["3336488889"]
   },
@@ -19,11 +19,11 @@
     "Numero_IN": ["18665018283"],
     "Numero_Saliente": ["3336488887"]
   },
-  "Agente de Call Center Tabasco Pre-Lic-PG": {
+  "Agente de Call Center SALUD": {
     "Numero_IN": ["18665017410"],
     "Numero_Saliente": ["3336488882"]
   },
-  "Agente de Call Center UG GDL CS Y MEDICINA": {
+  "Agente de Call Center Tabasco Pre-Lic-PG": {
     "Numero_IN": ["18665017410"],
     "Numero_Saliente": ["3336488882"]
   },
@@ -32,58 +32,17 @@
     "Numero_Saliente": ["3336488882"]
   },
   "Agente de Call Center UG GDL DCYT": {
-    "Numero_IN": ["18665017410"],
-    "Numero_Saliente": ["3336488882"]
-  },
-
-  "Ejecutivo AC Idiomas": {
-    "Numero_IN": [],
-    "Numero_Saliente": ["3336488890"]
-  },
-  "Ejecutivo AC K12": {
-    "Numero_IN": [],
-    "Numero_Saliente": ["3336488881"]
-  },
-  "Ejecutivo AC Online PG": {
-    "Numero_IN": [],
-    "Numero_Saliente": ["3336488889"]
-  },
-  "Ejecutivo AC Online Lic": {
-    "Numero_IN": [],
-    "Numero_Saliente": ["3336488889"]
-  },
-  "Ejecutivo AC Posgrados": {
-    "Numero_IN": [],
-    "Numero_Saliente": ["3336488887"]
-  },
-  "Ejecutivo AC Tabasco Pre-Lic-PG": {
-    "Numero_IN": ["18665017410"],
-    "Numero_Saliente": ["3336488882"]
-  },
-  "Ejecutivo AC UG GDL CS Y MEDICINA": {
-    "Numero_IN": ["18449990103"],
-    "Numero_Saliente": ["3336488882"]
-  },
-  "Ejecutivo AC UG GDL CSEA": {
-    "Numero_IN": ["18669706452"],
-    "Numero_Saliente": ["3336488882"]
-  },
-  "Ejecutivo de atención y captación Online": {
-    "Numero_IN": ["18669615252"],
-    "Numero_Saliente": ["3336488881"]
-  },
-  "Ejecutivo AC UG GDL DCYT": {
     "Numero_IN": ["18776915435"],
     "Numero_Saliente": ["3336488882"]
   },
 
+  "Ejecutivo de atención y captación Online": {
+    "Numero_IN": ["18669615252"],
+    "Numero_Saliente": ["3336488889"]
+  },
   "Ejecutivo de Educación continua": {
     "Numero_IN": ["18774501297"],
-    "Numero_Saliente": ["3336488887"]
-  },
-  "Ejecutivo RC Feeder": {
-    "Numero_IN": [],
-    "Numero_Saliente": ["3336488882"]
+    "Numero_Saliente": ["3336488890"]
   },
   "K12 Ejecutivo de AC Antonio Caso": {
     "Numero_IN": ["18776804358"],
@@ -101,25 +60,21 @@
     "Numero_IN": ["18447633639"],
     "Numero_Saliente": ["3336488881"]
   },
-  "PG GDL Ejecutivo AC Doctorado": {
-    "Numero_IN": ["18669663074"],
-    "Numero_Saliente": ["3336488889"]
-  },
   "PG GDL Ejecutivo AC Maestría": {
     "Numero_IN": ["18669663074"],
-    "Numero_Saliente": ["3336488889"]
+    "Numero_Saliente": ["3336488887"]
   },
   "Tabasco Ejecutivo AC K12": {
     "Numero_IN": ["18665017410"],
-    "Numero_Saliente": ["3336488882"]
+    "Numero_Saliente": ["3336488891"]
   },
   "Tabasco Ejecutivo AC Licenciaturas": {
     "Numero_IN": ["18665017410"],
-    "Numero_Saliente": ["3336488882"]
+    "Numero_Saliente": ["3336488891"]
   },
   "Tabasco Ejecutivo AC Posgrados": {
     "Numero_IN": ["18665017410"],
-    "Numero_Saliente": ["3336488882"]
+    "Numero_Saliente": ["3336488891"]
   },
   "UG GDL Ejecutivo AC Administrativas": {
     "Numero_IN": ["18669706452"],
@@ -127,6 +82,10 @@
   },
   "UG GDL Ejecutivo AC CYT": {
     "Numero_IN": ["18776915435"],
+    "Numero_Saliente": ["3336488882"]
+  },
+  "UG GDL Ejecutivo AC Medicina": {
+    "Numero_IN": ["18449990103"],
     "Numero_Saliente": ["3336488882"]
   },
   "UG GDL Ejecutivo AC Salud": {
