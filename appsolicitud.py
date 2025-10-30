@@ -532,7 +532,6 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
                                 except Exception as e:
                                     st.error(f"Error general al buscar/guardar calificación: {e}")
 # ===================== SECCIÓN: SOLICITUDES CRM =====================
-# ===================== SECCIÓN: SOLICITUDES CRM =====================
 elif seccion == "🌟 Solicitudes CRM":
     st.markdown("## 🌟 Formulario de Solicitudes Zoho CRM")
 
@@ -563,137 +562,164 @@ elif seccion == "🌟 Solicitudes CRM":
         ss.sol_turno = horarios_dict.get(ss.sol_horario, "") if ss.sol_horario != "Selecciona..." else ""
 
     # -----------------------------------------------------------------
-    # --- FORMULARIO ÚNICO: Todo debe ir DENTRO de st.form ---
+    # --- PASO 1: SELECCIONAR TIPO (FUERA DEL FORM) ---
     # -----------------------------------------------------------------
-    with st.form("solicitud_form_unificado", clear_on_submit=True):
-        st.markdown("### 1) Tipo de Solicitud")
-        # 0) Tipo de solicitud
-        tipo_solicitud = st.selectbox(
-            "Tipo de Solicitud en Zoho (*)",
-            ["Selecciona...", "Alta", "Modificación", "Baja"],
-            key="sol_tipo" # Usamos key para que el estado se guarde
-            # No usamos on_change aquí, la lógica de UI se manejará abajo
-        )
+    st.markdown("### 1) Tipo de Solicitud")
+    # Este selectbox controla qué formulario se muestra
+    st.selectbox(
+        "Tipo de Solicitud en Zoho (*)",
+        ["Selecciona...", "Alta", "Modificación", "Baja"],
+        key="sol_tipo" # La key actualiza st.session_state.sol_tipo
+    )
 
+    # -----------------------------------------------------------------
+    # --- FORMULARIO 1: BAJA (Si se selecciona "Baja") ---
+    # -----------------------------------------------------------------
+    if ss.sol_tipo == "Baja":
+        st.markdown("### 2) Datos del Usuario a dar de baja")
+        with st.form("solicitud_form_baja", clear_on_submit=True):
+            nombre = st.text_input("Nombre Completo de Usuario (*)")
+            correo_user = st.text_input("Correo institucional del usuario (*)")
+            correo_solicitante = st.text_input("Correo de quien lo solicita (*)")
+            
+            st.caption("(*) Campos obligatorios")
+            submitted_baja = st.form_submit_button("✔️ Enviar Baja", use_container_width=True)
+
+            if submitted_baja:
+                if not nombre or not correo_user or not correo_solicitante:
+                    st.warning("⚠️ Faltan campos obligatorios.")
+                else:
+                    try:
+                        fila_sol = [
+                            now_mx_str(), "Baja", nombre.strip(), correo_user.strip(), 
+                            "N/A", "N/A", "N/A", "", "", "", "", _email_norm(correo_solicitante),
+                            "Pendiente", "", "", str(uuid4()), "", ""
+                        ]
+                        header_s = sheet_solicitudes.row_values(1); fila_sol = fila_sol[:len(header_s)]
+                        with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
+                        st.success("✅ Baja registrada."); st.balloons()
+                        enviar_correo(f"Solicitud CRM: Baja - {nombre}", f"...", correo_solicitante)
+                        # Resetear el tipo para la próxima
+                        ss.sol_tipo = "Selecciona..."
+                    except Exception as e: 
+                        st.error(f"❌ Error al registrar baja: {e}")
+
+    # -----------------------------------------------------------------
+    # --- FORMULARIO 2: ALTA / MODIFICACIÓN ---
+    # -----------------------------------------------------------------
+    elif ss.sol_tipo in ["Alta", "Modificación"]:
+        
         st.markdown("### 2) Datos del Usuario")
         c1, c2 = st.columns(2)
         with c1:
-            nombre = st.text_input("Nombre Completo de Usuario (*)", key="sol_nombre")
+            sol_nombre = st.text_input("Nombre Completo de Usuario (*)", key="sol_nombre_input")
         with c2:
-            correo_user = st.text_input("Correo institucional del usuario (*)", key="sol_correo_user")
+            sol_correo_user = st.text_input("Correo institucional del usuario (*)", key="sol_correo_input")
 
-        # --- Campos Condicionales (Solo para Alta/Modificación) ---
-        if tipo_solicitud in ["Alta", "Modificación"]:
-            st.markdown("### 3) Definición del Puesto (cascada)")
-            
-            # Área
-            areas = ["Selecciona..."] + list(estructura_roles.keys())
-            area_idx = areas.index(ss.sol_area) if ss.sol_area in areas else 0
-            st.selectbox("Área (*)", areas, index=area_idx, key="sol_area", on_change=on_change_area)
-            
-            # Perfil
-            perfiles_disp = ["Selecciona..."]
-            if ss.sol_area in estructura_roles:
-                perfiles_disp += list(estructura_roles[ss.sol_area].keys())
-            if ss.sol_perfil not in perfiles_disp: ss.sol_perfil = "Selecciona..." # Reset si no es válido
-            perfil_idx = perfiles_disp.index(ss.sol_perfil)
-            st.selectbox("Perfil (*)", perfiles_disp, index=perfil_idx, key="sol_perfil", on_change=on_change_perfil)
-            
-            # Rol
-            roles_disp = ["Selecciona..."]
-            if ss.sol_area in estructura_roles and ss.sol_perfil in estructura_roles[ss.sol_area]:
-                roles_disp += estructura_roles[ss.sol_area][ss.sol_perfil]
-            if ss.sol_rol not in roles_disp: ss.sol_rol = "Selecciona..." # Reset
-            rol_idx = roles_disp.index(ss.sol_rol)
-            st.selectbox("Rol (*)", roles_disp, index=rol_idx, key="sol_rol") # No necesita callback
-
-            # 4) Números IN / Saliente
-            show_numeros = ss.sol_rol in numeros_por_rol
-            if show_numeros:
-                st.markdown("### 4) Extensiones y salida (si aplica)")
-                nums_cfg = numeros_por_rol.get(ss.sol_rol, {})
-                nums_in = ["No aplica"] + nums_cfg.get("Numero_IN", [])
-                nums_out = ["No aplica"] + nums_cfg.get("Numero_Saliente", [])
-                c3, c4 = st.columns(2)
-                with c3: st.selectbox("Número IN", nums_in, key="sol_num_in")
-                with c4: st.selectbox("Número Saliente", nums_out, key="sol_num_out")
-
-            # 5) Horario / Turno
-            requiere_horario = ss.sol_perfil in {"Agente de Call Center", "Ejecutivo AC"}
-            if requiere_horario:
-                st.markdown("### 5) Horario de trabajo (*)")
-                horarios_disp = ["Selecciona..."] + list(horarios_dict.keys())
-                st.selectbox("Horario", horarios_disp, key="sol_horario", on_change=on_change_horario)
-                st.text_input("Turno (Automático)", value=ss.sol_turno, disabled=True, key="sol_turno_display")
-
-        st.markdown("### 6) Quién Solicita")
-        correo_solicitante = st.text_input("Correo de quien lo solicita (*)", key="sol_correo_solicita")
-
-        st.caption("(*) Campos obligatorios")
-        submitted_sol = st.form_submit_button("✔️ Enviar Solicitud", use_container_width=True)
-
-    # --- Lógica de envío (se ejecuta DESPUÉS del form) ---
-    if submitted_sol:
-        # Leer todos los valores desde session_state (porque los widgets están en el form)
-        tipo    = ss.sol_tipo
-        nombre  = ss.sol_nombre
-        correo  = ss.sol_correo_user
-        area    = ss.sol_area
-        perfil  = ss.sol_perfil
-        rol     = ss.sol_rol
-        num_in  = ss.sol_num_in
-        num_out = ss.sol_num_out
-        horario = ss.sol_horario
-        turno   = ss.sol_turno
-        solicita = ss.sol_correo_solicita
+        st.markdown("### 3) Definición del Puesto (cascada)")
         
-        # --- Validaciones ---
-        if tipo == "Selecciona..." or not nombre or not correo or not solicita:
-            st.warning("⚠️ Faltan campos básicos obligatorios (Tipo, Nombre, Correo, Solicitante)."); st.stop()
+        # Área
+        areas = ["Selecciona..."] + list(estructura_roles.keys())
+        area_idx = areas.index(ss.sol_area) if ss.sol_area in areas else 0
+        st.selectbox("Área (*)", areas, index=area_idx, key="sol_area", on_change=on_change_area)
         
-        if tipo == "Baja":
-             # Lógica para guardar Baja
-            try:
-                fila_sol = [now_mx_str(), "Baja", nombre.strip(), correo.strip(), "N/A", "N/A", "N/A", "", "", "", "", _email_norm(solicita), "Pendiente", "", "", str(uuid4()), "", ""]
-                header_s = sheet_solicitudes.row_values(1); fila_sol = fila_sol[:len(header_s)]
-                with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
-                st.success("✅ Baja registrada."); st.balloons()
-                enviar_correo(f"Solicitud CRM: Baja - {nombre}", f"...", solicita)
-                # Resetear valores visibles (clear_on_submit=True lo hace)
-                ss.sol_nombre = ss.sol_correo_user = ss.sol_correo_solicita = "" # Limpia los inputs
-            except Exception as e: st.error(f"❌ Error al registrar baja: {e}")
+        # Perfil
+        perfiles_disp = ["Selecciona..."]
+        if ss.sol_area in estructura_roles:
+            perfiles_disp += list(estructura_roles[ss.sol_area].keys())
+        if ss.sol_perfil not in perfiles_disp: ss.sol_perfil = "Selecciona..."
+        perfil_idx = perfiles_disp.index(ss.sol_perfil)
+        st.selectbox("Perfil (*)", perfiles_disp, index=perfil_idx, key="sol_perfil", on_change=on_change_perfil)
+        
+        # Rol
+        roles_disp = ["Selecciona..."]
+        if ss.sol_area in estructura_roles and ss.sol_perfil in estructura_roles[ss.sol_area]:
+            roles_disp += estructura_roles[ss.sol_area][ss.sol_perfil]
+        if ss.sol_rol not in roles_disp: ss.sol_rol = "Selecciona..."
+        rol_idx = roles_disp.index(ss.sol_rol)
+        st.selectbox("Rol (*)", roles_disp, index=rol_idx, key="sol_rol")
 
-        elif tipo in ["Alta", "Modificación"]:
-            # Validaciones para Alta/Mod
-            if area == "Selecciona..." or perfil == "Selecciona..." or rol == "Selecciona...":
-                st.warning("⚠️ Faltan campos de Área/Perfil/Rol."); st.stop()
+        # 4) Números IN / Saliente
+        show_numeros = ss.sol_rol in numeros_por_rol
+        if show_numeros:
+            st.markdown("### 4) Extensiones y salida (si aplica)")
+            nums_cfg = numeros_por_rol.get(ss.sol_rol, {})
+            nums_in = ["No aplica"] + nums_cfg.get("Numero_IN", [])
+            nums_out = ["No aplica"] + nums_cfg.get("Numero_Saliente", [])
+            c3, c4 = st.columns(2)
+            with c3: st.selectbox("Número IN", nums_in, key="sol_num_in")
+            with c4: st.selectbox("Número Saliente", nums_out, key="sol_num_out")
+
+        # 5) Horario / Turno
+        requiere_horario = ss.sol_perfil in {"Agente de Call Center", "Ejecutivo AC"}
+        if requiere_horario:
+            st.markdown("### 5) Horario de trabajo (*)")
+            horarios_disp = ["Selecciona..."] + list(horarios_dict.keys())
+            st.selectbox("Horario", horarios_disp, key="sol_horario", on_change=on_change_horario)
+            st.text_input("Turno (Automático)", value=ss.sol_turno, disabled=True)
+        
+        # Poner el resto dentro de un formulario
+        with st.form("solicitud_form_alta_mod", clear_on_submit=True):
+            st.markdown("### 6) Quién Solicita")
+            correo_solicitante = st.text_input("Correo de quien lo solicita (*)", key="sol_correo_sol_input_form")
             
-            requiere_horario_check = perfil in {"Agente de Call Center", "Ejecutivo AC"}
-            if requiere_horario_check and horario == "Selecciona...":
-                st.warning("⚠️ Selecciona un horario de trabajo válido."); st.stop()
+            st.caption("(*) Campos obligatorios")
+            submitted_sol = st.form_submit_button("✔️ Enviar Solicitud", use_container_width=True)
 
-            # Lógica para guardar Alta/Mod
-            try:
-                num_in_val  = "" if (num_in == "No aplica") else str(num_in)
-                num_out_val = "" if (num_out == "No aplica") else str(num_out)
-                horario_val = "" if (not requiere_horario_check or horario == "Selecciona...") else horario
-                turno_val   = "" if (not requiere_horario_check) else turno
+            if submitted_sol:
+                # Leer valores de los widgets FUERA del form (desde session_state)
+                tipo    = ss.sol_tipo
+                area    = ss.sol_area
+                perfil  = ss.sol_perfil
+                rol     = ss.sol_rol
+                num_in  = ss.sol_num_in
+                num_out = ss.sol_num_out
+                horario = ss.sol_horario
+                turno   = ss.sol_turno
+                
+                # Leer valores de los widgets DENTRO del form (desde las variables)
+                nombre  = sol_nombre # Este nombre no es correcto, debe leerse de la key
+                correo  = sol_correo_user # Este tampoco
+                
+                # --- CORRECCIÓN FINAL: Leer TODOS los valores desde session_state ---
+                nombre = ss.sol_nombre_input 
+                correo = ss.sol_correo_input
+                # (correo_solicitante ya está leído desde el form)
+                
+                # --- Validaciones ---
+                if not nombre or not correo or not correo_solicitante:
+                    st.warning("⚠️ Faltan campos básicos (Nombre, Correo Usuario, Correo Solicitante)."); st.stop()
+                if area == "Selecciona..." or perfil == "Selecciona..." or rol == "Selecciona...":
+                    st.warning("⚠️ Faltan campos de Área/Perfil/Rol."); st.stop()
+                if requiere_horario and horario == "Selecciona...":
+                    st.warning("⚠️ Selecciona un horario de trabajo válido."); st.stop()
 
-                fila_sol = [
-                    now_mx_str(), tipo, nombre.strip(), correo.strip(),
-                    area, perfil, rol,
-                    num_in_val, num_out_val, horario_val, turno_val,
-                    _email_norm(solicita), "Pendiente",
-                    "", "", str(uuid4()), "", ""
-                ]
-                header_s = sheet_solicitudes.row_values(1); fila_sol = fila_sol[:len(header_s)]
-                with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
-                st.success("✅ Solicitud registrada."); st.balloons()
-                enviar_correo(f"Solicitud CRM: {tipo} - {nombre}", f"...", solicita)
-                # Limpiar los dropdowns de cascada
-                for k in defaults: ss[k] = defaults[k]
-                # st.rerun() # No es necesario, clear_on_submit limpia los inputs
-            except Exception as e: st.error(f"❌ Error al registrar solicitud: {e}")
+                # Lógica para guardar Alta/Mod
+                try:
+                    num_in_val  = "" if (not show_numeros or num_in == "No aplica") else str(num_in)
+                    num_out_val = "" if (not show_numeros or num_out == "No aplica") else str(num_out)
+                    horario_val = "" if (not requiere_horario or horario == "Selecciona...") else horario
+                    turno_val   = "" if (not requiere_horario) else turno
+
+                    fila_sol = [
+                        now_mx_str(), tipo, nombre.strip(), correo.strip(),
+                        area, perfil, rol,
+                        num_in_val, num_out_val, horario_val, turno_val,
+                        _email_norm(correo_solicitante), "Pendiente",
+                        "", "", str(uuid4()), "", ""
+                    ]
+                    header_s = sheet_solicitudes.row_values(1); fila_sol = fila_sol[:len(header_s)]
+                    with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
+                    st.success("✅ Solicitud registrada."); st.balloons()
+                    enviar_correo(f"Solicitud CRM: {tipo} - {nombre}", f"...", correo_solicitante)
+                    
+                    # Limpiar estado de sesión
+                    for k in defaults: ss[k] = defaults[k]
+                    ss.sol_nombre_input = ""
+                    ss.sol_correo_input = ""
+                    # (el correo del solicitante se limpia por clear_on_submit=True)
+                    
+                except Exception as e: st.error(f"❌ Error al registrar solicitud: {e}")
 
 # ===================== SECCIÓN: INCIDENCIAS CRM =====================
 elif seccion == "🛠️ Incidencias CRM":
