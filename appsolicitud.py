@@ -533,7 +533,6 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
                                     st.error(f"Error general al buscar/guardar calificación: {e}")
 
 # ===================== SECCIÓN: SOLICITUDES CRM =====================
-
 elif seccion == "🌟 Solicitudes CRM":
     st.markdown("## 🌟 Formulario de Solicitudes Zoho CRM")
 
@@ -544,10 +543,8 @@ elif seccion == "🌟 Solicitudes CRM":
         "sol_perfil": "Selecciona...", "sol_rol": "Selecciona...",
         "sol_horario": "Selecciona...", "sol_turno": "",
         "sol_num_in": "No aplica", "sol_num_out": "No aplica",
-        "sol_nombre_input": "", # Clave para el input de nombre
-        "sol_correo_input": ""  # Clave para el input de correo
+        # Ya no necesitamos las claves de los inputs aquí
     }
-    # Inicializar solo las claves que faltan
     for k, v in defaults.items():
         if k not in ss: ss[k] = v
 
@@ -570,12 +567,10 @@ elif seccion == "🌟 Solicitudes CRM":
     # --- PASO 1: SELECCIONAR TIPO (FUERA DEL FORM) ---
     # -----------------------------------------------------------------
     st.markdown("### 1) Tipo de Solicitud")
-    # Este selectbox controla qué formulario se muestra
-    # Usa 'key' para que su valor se guarde en st.session_state.sol_tipo
     st.selectbox(
         "Tipo de Solicitud en Zoho (*)",
         ["Selecciona...", "Alta", "Modificación", "Baja"],
-        key="sol_tipo" 
+        key="sol_tipo" # La key actualiza st.session_state.sol_tipo
     )
 
     # -----------------------------------------------------------------
@@ -608,11 +603,9 @@ elif seccion == "🌟 Solicitudes CRM":
                         resumen_baja = f"Tipo: Baja<br>Nombre: {nombre}<br>Correo usuario: {correo_user}<br>Solicitante: {correo_solicitante}"
                         enviar_correo(f"Solicitud CRM: Baja - {nombre}", resumen_baja, correo_solicitante)
                         
-                        # Resetear el tipo para la próxima
-                        ss.sol_tipo = "Selecciona..."
+                        ss.sol_tipo = "Selecciona..." # Resetear el tipo
                     except Exception as e: 
                         st.error(f"❌ Error al registrar baja: {e}")
-        # Detener la ejecución para no mostrar el formulario de Alta/Mod
         st.stop() 
 
     # -----------------------------------------------------------------
@@ -620,23 +613,12 @@ elif seccion == "🌟 Solicitudes CRM":
     # -----------------------------------------------------------------
     elif ss.sol_tipo in ["Alta", "Modificación"]:
         
-        st.markdown("### 2) Datos del Usuario")
-        c1, c2 = st.columns(2)
-        with c1:
-            # Este input usa 'key' para guardar su valor en ss.sol_nombre_input
-            st.text_input("Nombre Completo de Usuario (*)", key="sol_nombre_input")
-        with c2:
-            # Este input usa 'key' para guardar su valor en ss.sol_correo_input
-            st.text_input("Correo institucional del usuario (*)", key="sol_correo_input")
-
-        st.markdown("### 3) Definición del Puesto (cascada)")
-        
-        # Área
+        # --- CASCADA DE DROPDOWNS (FUERA DEL FORM) ---
+        st.markdown("### 2) Definición del Puesto (cascada)")
         areas = ["Selecciona..."] + list(estructura_roles.keys())
         area_idx = areas.index(ss.sol_area) if ss.sol_area in areas else 0
         st.selectbox("Área (*)", areas, index=area_idx, key="sol_area", on_change=on_change_area)
         
-        # Perfil
         perfiles_disp = ["Selecciona..."]
         if ss.sol_area in estructura_roles:
             perfiles_disp += list(estructura_roles[ss.sol_area].keys())
@@ -644,7 +626,6 @@ elif seccion == "🌟 Solicitudes CRM":
         perfil_idx = perfiles_disp.index(ss.sol_perfil)
         st.selectbox("Perfil (*)", perfiles_disp, index=perfil_idx, key="sol_perfil", on_change=on_change_perfil)
         
-        # Rol
         roles_disp = ["Selecciona..."]
         if ss.sol_area in estructura_roles and ss.sol_perfil in estructura_roles[ss.sol_area]:
             roles_disp += estructura_roles[ss.sol_area][ss.sol_perfil]
@@ -652,92 +633,97 @@ elif seccion == "🌟 Solicitudes CRM":
         rol_idx = roles_disp.index(ss.sol_rol)
         st.selectbox("Rol (*)", roles_disp, index=rol_idx, key="sol_rol")
 
-        # 4) Números IN / Saliente
-        show_numeros = ss.sol_rol in numeros_por_rol
-        if show_numeros:
-            st.markdown("### 4) Extensiones y salida (si aplica)")
-            nums_cfg = numeros_por_rol.get(ss.sol_rol, {})
-            nums_in = ["No aplica"] + nums_cfg.get("Numero_IN", [])
-            nums_out = ["No aplica"] + nums_cfg.get("Numero_Saliente", [])
-            c3, c4 = st.columns(2)
-            with c3: st.selectbox("Número IN", nums_in, key="sol_num_in")
-            with c4: st.selectbox("Número Saliente", nums_out, key="sol_num_out")
-
-        # 5) Horario / Turno
         requiere_horario = ss.sol_perfil in {"Agente de Call Center", "Ejecutivo AC"}
         if requiere_horario:
-            st.markdown("### 5) Horario de trabajo (*)")
+            st.markdown("### 3) Horario de trabajo (*)")
             horarios_disp = ["Selecciona..."] + list(horarios_dict.keys())
             st.selectbox("Horario", horarios_disp, key="sol_horario", on_change=on_change_horario)
             st.text_input("Turno (Automático)", value=ss.sol_turno, disabled=True)
+        # --- FIN DE LA CASCADA ---
         
-        # Poner el resto dentro de un formulario
+        # --- INICIO DEL FORMULARIO ---
         with st.form("solicitud_form_alta_mod", clear_on_submit=True):
+            st.markdown("### 4) Datos del Usuario")
+            c1, c2 = st.columns(2)
+            with c1:
+                # MOVIDO DENTRO DEL FORM
+                nombre = st.text_input("Nombre Completo de Usuario (*)", key="sol_nombre_input_form")
+            with c2:
+                # MOVIDO DENTRO DEL FORM
+                correo = st.text_input("Correo institucional del usuario (*)", key="sol_correo_input_form")
+
+            show_numeros = ss.sol_rol in numeros_por_rol
+            if show_numeros:
+                st.markdown("### 5) Extensiones y salida (si aplica)")
+                nums_cfg = numeros_por_rol.get(ss.sol_rol, {})
+                nums_in_list = ["No aplica"] + nums_cfg.get("Numero_IN", [])
+                nums_out_list = ["No aplica"] + nums_cfg.get("Numero_Saliente", [])
+                c3, c4 = st.columns(2)
+                with c3:
+                    # MOVIDO DENTRO DEL FORM
+                    num_in = st.selectbox("Número IN", nums_in_list, key="sol_num_in_form")
+                with c4:
+                    # MOVIDO DENTRO DEL FORM
+                    num_out = st.selectbox("Número Saliente", nums_out_list, key="sol_num_out_form")
+            else:
+                num_in, num_out = "No aplica", "No aplica"
+
             st.markdown("### 6) Quién Solicita")
-            # Este input SÍ está dentro del form, se leerá por su variable local
             correo_solicitante_form = st.text_input("Correo de quien lo solicita (*)", key="sol_correo_sol_input_form")
             
             st.caption("(*) Campos obligatorios")
             submitted_sol = st.form_submit_button("✔️ Enviar Solicitud", use_container_width=True)
 
+            # --- LÓGICA DE ENVÍO (DENTRO DEL FORM) ---
             if submitted_sol:
-                # Leer valores de los widgets FUERA del form (desde session_state)
-                tipo     = ss.sol_tipo
-                area     = ss.sol_area
-                perfil   = ss.sol_perfil
-                rol      = ss.sol_rol
-                num_in   = ss.sol_num_in
-                num_out  = ss.sol_num_out
-                horario  = ss.sol_horario
-                turno    = ss.sol_turno
+                # Leer valores de cascada (desde session_state)
+                tipo    = ss.sol_tipo
+                area    = ss.sol_area
+                perfil  = ss.sol_perfil
+                rol     = ss.sol_rol
+                horario = ss.sol_horario
+                turno   = ss.sol_turno
                 
-                # Leer valores de los widgets DENTRO y FUERA (texto)
-                nombre   = ss.sol_nombre_input
-                correo   = ss.sol_correo_input
-                solicita = correo_solicitante_form # Leer la variable del input del form
+                # Leer valores del form (desde variables locales)
+                # 'nombre', 'correo', 'num_in', 'num_out', 'correo_solicitante_form'
                 
                 # --- Validaciones ---
-                if tipo == "Selecciona..." or not nombre or not correo or not solicita:
-                    st.warning("⚠️ Faltan campos básicos (Tipo, Nombre, Correo Usuario, Correo Solicitante)."); st.stop()
+                if not nombre or not correo or not correo_solicitante_form:
+                    st.warning("⚠️ Faltan campos básicos (Nombre, Correo Usuario, Correo Solicitante)."); st.stop()
                 if area == "Selecciona..." or perfil == "Selecciona..." or rol == "Selecciona...":
                     st.warning("⚠️ Faltan campos de Área/Perfil/Rol."); st.stop()
                 
-                requiere_horario_check = perfil in {"Agente de Call Center", "Ejecutivo AC"}
-                if requiere_horario_check and horario == "Selecciona...":
+                if requiere_horario and horario == "Selecciona...":
                     st.warning("⚠️ Selecciona un horario de trabajo válido."); st.stop()
 
                 # Lógica para guardar Alta/Mod
                 try:
                     num_in_val  = "" if (not show_numeros or num_in == "No aplica") else str(num_in)
                     num_out_val = "" if (not show_numeros or num_out == "No aplica") else str(num_out)
-                    horario_val = "" if (not requiere_horario_check or horario == "Selecciona...") else horario
-                    turno_val   = "" if (not requiere_horario_check) else turno
+                    horario_val = "" if (not requiere_horario or horario == "Selecciona...") else horario
+                    turno_val   = "" if (not requiere_horario) else turno
 
                     fila_sol = [
                         now_mx_str(), tipo, nombre.strip(), correo.strip(),
                         area, perfil, rol,
                         num_in_val, num_out_val, horario_val, turno_val,
-                        _email_norm(solicita), "Pendiente",
+                        _email_norm(correo_solicitante_form), "Pendiente",
                         "", "", str(uuid4()), "", ""
                     ]
                     header_s = sheet_solicitudes.row_values(1); fila_sol = fila_sol[:len(header_s)]
                     with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
                     st.success("✅ Solicitud registrada."); st.balloons()
                     
-                    # --- CORRECCIÓN 1: Resumen del Correo ---
-                    resumen_email = f"Tipo: {tipo}<br>Nombre: {nombre}<br>Correo usuario: {correo}<br>Solicitante: {solicita}<br>Área: {area}<br>Perfil: {perfil}<br>Rol: {rol}"
-                    enviar_correo(f"Solicitud CRM: {tipo} - {nombre}", resumen_email, solicita)
+                    # Resumen del Correo (Corregido)
+                    resumen_email = f"Tipo: {tipo}<br>Nombre: {nombre}<br>Correo usuario: {correo}<br>Solicitante: {correo_solicitante_form}<br>Área: {area}<br>Perfil: {perfil}<br>Rol: {rol}"
+                    enviar_correo(f"Solicitud CRM: {tipo} - {nombre}", resumen_email, correo_solicitante_form)
                     
-                    # --- CORRECCIÓN 2: Limpieza de Estado (Sin 'sol_tipo') ---
-                    # Limpiar los inputs de texto (que están fuera del form)
-                    ss.sol_nombre_input = "" 
-                    ss.sol_correo_input = ""
-                    # Limpiar los dropdowns de cascada
+                    # --- LIMPIEZA CORREGIDA ---
+                    # Limpiar solo los dropdowns (que están fuera del form)
                     for k in defaults:
-                        # ¡IMPORTANTE! No resetear 'sol_tipo'
-                        if k != "sol_tipo": 
+                        if k != "sol_tipo": # No tocar sol_tipo
                             ss[k] = defaults[k]
-                    # (El 'correo_solicitante' se limpia solo gracias a clear_on_submit=True)
+                    # 'clear_on_submit=True' limpiará los inputs DENTRO del form
                     
                 except Exception as e: 
                     st.error(f"❌ Error al registrar solicitud: {e}")
