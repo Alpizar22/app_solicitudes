@@ -418,30 +418,6 @@ elif seccion == "📝 Mejoras y sugerencias":
             with_backoff(sheet_quejas.append_row, [now_mx_str(), m, t, d, "", "", "Pendiente"])
             st.success("✅ Enviado"); time.sleep(1); st.rerun()
 
-# --- 5. ADMIN (COMPLETO Y RESTAURADO) ---
-elif seccion == "🔐 Zona Admin":
-    st.markdown("## 🔐 Zona Administrativa")
-    
-    # 1. Lógica de Login Admin
-    ADMIN_PASS = st.secrets.get("admin", {}).get("password", "")
-    admin_ok = st.session_state.get("is_admin", False)
-
-    if not admin_ok:
-        with st.form("admin_login"):
-            pwd = st.text_input("Contraseña Admin", type="password")
-            if st.form_submit_button("Entrar"):
-                if pwd == ADMIN_PASS: 
-                    st.session_state.is_admin = True
-                    st.rerun()
-                else: st.error("❌ Contraseña incorrecta")
-    else:
-        if st.button("Salir de Admin"):
-            del st.session_state.is_admin
-            st.rerun()
-        
-        # 2. Tabs de Gestión
-        tab1, tab2, tab3 = st.tabs(["Solicitudes", "Incidencias", "Quejas"])
-        
 # --- 5. ADMIN (CON NOTIFICACIONES DE RESPUESTA) ---
 elif seccion == "🔐 Zona Admin":
     st.markdown("## 🔐 Zona Administrativa")
