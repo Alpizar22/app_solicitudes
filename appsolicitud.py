@@ -233,7 +233,7 @@ seccion = nav[idx]
 
 # --- 1. ESTADO ---
 if seccion == "🔍 Ver el estado de mis solicitudes":
-    st.markdown("## 🔍 Mis Trámites")
+    st.markdown("## 🔍 Mis Tickets")
     if not st.session_state.usuario_logueado:
         with st.form("log"):
             pw = st.text_input("Contraseña", type="password")
@@ -340,11 +340,11 @@ elif seccion == "🛠️ Incidencias CRM":
     # --- AVISOS DINÁMICOS ---
     check_texto = "Confirmo que la información es correcta."
     if cat == "Reactivación":
-        st.warning("⚠️ **REGLA DE ORO:** Solo procede si el estatus actual del Lead es **'Descartado'**.")
+        st.warning("⚠️ **Favor de Revisar** Solo procede si el estado actual del Lead es **'Descartado'**.")
         check_texto = "✅ Confirmo que ya revisé en Zoho y el estatus es 'Descartado'."
     elif cat == "Desfase":
-        st.info("ℹ️ **REQUISITO:** Obligatorio adjuntar evidencia (PING vs Zoho).")
-        check_texto = "✅ Confirmo que adjuntaré la evidencia visual de PING."
+        st.info("ℹ️ **REQUISITO:** Obligatorio adjuntar evidencia con captura de pantalla y en la descripción añadir el ID UAG.")
+        check_texto = "✅ Confirmo que adjuntaré la evidencia visual de PING, así como el ID UAG."
 
     st.divider() 
     
