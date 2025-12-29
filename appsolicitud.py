@@ -121,19 +121,18 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes
         file_buffer.seek(0)
         with_backoff(blob.upload_from_file, file_buffer, content_type=content_type, rewind=True)
         
-        # --- CORRECCIÓN: 15 DÍAS ---
+        # --- CORRECCIÓN: 7 DÍAS (Límite máximo de Google) ---
         signed_url = blob.generate_signed_url(
             version="v4",
-            expiration=timedelta(days=15),  # <--- AQUÍ ESTÁ EL CAMBIO (Antes decía minutes)
+            expiration=timedelta(days=7),  # <--- CAMBIADO A 7 DÍAS
             method="GET",
         )
         
-        st.toast("☁️ Archivo subido a GCS (Link válido por 15 días).", icon="☁️")
+        st.toast("☁️ Archivo subido (Link válido por 7 días).", icon="☁️")
         return signed_url
     except Exception as e:
         st.error(f"❌ Error al subir archivo a GCS: {e}")
         return None
-
 # =========================
 # 🧠 CEREBRO IA (PORTERO V3.2 - Checklist)
 # =========================
