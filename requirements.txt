@@ -8,3 +8,8 @@ google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 google-cloud-storage
+openai
+google-auth
+faiss-cpu
+pypdf
+numpy
