@@ -119,6 +119,7 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
             version="v4", 
             expiration=timedelta(days=15),  # <--- 15 Días activo
             method="GET"
+        )
     except: return None
 
 # =========================
