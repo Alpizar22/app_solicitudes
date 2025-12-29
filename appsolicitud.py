@@ -15,7 +15,7 @@ from google.cloud import storage # GCS
 import yagmail
 from zoneinfo import ZoneInfo
 
-# --- LIBRERÍAS IA (AGREGADAS) ---
+# --- LIBRERÍAS IA ---
 import openai
 try:
     from pypdf import PdfReader
@@ -60,7 +60,7 @@ def validate_upload_limits(uploaded_file) -> tuple[bool, str]:
     return True, ""
 
 # =========================
-# Utils
+# Utils & Config
 # =========================
 EMAIL_RE = re.compile(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})', re.I)
 def _email_norm(s: str) -> str:
@@ -85,9 +85,6 @@ def load_json_safe(path: str) -> dict:
 TZ_MX = ZoneInfo("America/Mexico_City")
 def now_mx_str() -> str: return datetime.now(TZ_MX).strftime("%d/%m/%Y %H:%M:%S")
 
-# =========================
-# Config / Secrets
-# =========================
 st.set_page_config(page_title="Gestor Zoho CRM", layout="wide")
 APP_MODE = st.secrets.get("mode", "dev")
 SEND_EMAILS = bool(st.secrets.get("email", {}).get("send_enabled", False))
@@ -113,12 +110,12 @@ def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
         blob = client.bucket(GCS_BUCKET_NAME).blob(filename_in_bucket)
         file_buffer.seek(0)
         with_backoff(blob.upload_from_file, file_buffer, content_type=content_type, rewind=True)
-        # --- CONFIGURACIÓN DE 15 DÍAS ---
+        # --- LINK DE 15 DÍAS ---
         return blob.generate_signed_url(version="v4", expiration=timedelta(days=15), method="GET")
     except: return None
 
 # =========================
-# 🧠 CEREBRO IA (PORTERO V3.2)
+# 🧠 CEREBRO IA (PORTERO V3.2 - Checklist)
 # =========================
 @st.cache_resource
 def get_openai_client():
@@ -188,7 +185,7 @@ def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunt
     except: return True, ""
 
 # =========================
-# Datos
+# Datos y Funciones Aux
 # =========================
 sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
 sheet_solicitudes, sheet_incidencias, sheet_quejas, sheet_usuarios, sheet_accesos = sheets["Sheet1"], sheets["Incidencias"], sheets["Quejas"], sheets["Usuarios"], sheets["Accesos"]
@@ -209,13 +206,26 @@ horarios_dict    = load_json_safe(data_folder / "horarios.json")
 udf = get_records_simple(sheet_usuarios)
 usuarios_dict = {str(p).strip(): _email_norm(c) for p, c in zip(udf.get("Contraseña",[]), udf.get("Correo",[])) if str(p).strip()}
 
-def enviar_correo(asunto, cuerpo, copia_a):
+def enviar_correo(asunto, cuerpo_detalle, para):
     if not SEND_EMAILS: return
     try:
         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
         to = ["luis.alpizar@edu.uag.mx"]
-        if copia_a and "@" in str(copia_a): to.append(copia_a)
-        yag.send(to=to, subject=asunto, contents=[cuerpo])
+        if para and "@" in str(para): to.append(para)
+        
+        # --- NUEVO TEXTO PROFESIONAL ---
+        mensaje_html = f"""
+        <h3>Hola,</h3>
+        <p>Hemos recibido tu reporte: <strong>{asunto}</strong>.</p>
+        <p>Nuestro equipo ya lo está gestionando para darte respuesta lo antes posible.</p>
+        <p>Te notificaremos por este medio cuando tu solicitud cambie de estado.</p>
+        <hr>
+        <p><strong>Detalle:</strong><br>{cuerpo_detalle}</p>
+        <br>
+        <p>Saludos,<br>Equipo de CRM</p>
+        """
+        
+        yag.send(to=to, subject=asunto, contents=[mensaje_html])
     except: pass
 
 def do_login(m): st.session_state.update({"usuario_logueado": _email_norm(m), "session_id": str(uuid4())}); st.rerun()
@@ -233,7 +243,7 @@ seccion = nav[idx]
 
 # --- 1. ESTADO ---
 if seccion == "🔍 Ver el estado de mis solicitudes":
-    st.markdown("## 🔍 Mis Tickets")
+    st.markdown("## 🔍 Mis Trámites")
     if not st.session_state.usuario_logueado:
         with st.form("log"):
             pw = st.text_input("Contraseña", type="password")
@@ -244,7 +254,6 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
         st.info(f"Usuario: **{st.session_state.usuario_logueado}**")
         if st.button("Salir"): do_logout()
         
-        # Lógica de Consulta (Simplificada para fusión, tu código original aquí es muy extenso, mantengo la estructura base)
         st.subheader("🛠️ Mis Incidencias")
         dfi = get_records_simple(sheet_incidencias)
         if not dfi.empty and "CorreoI" in dfi.columns:
@@ -254,7 +263,7 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
                     st.write(r.get("DescripcionI"))
                     if r.get("RespuestadeSolicitudI"): st.info(f"Respuesta: {r.get('RespuestadeSolicitudI')}")
 
-# --- 2. SOLICITUDES (RECUPERADO TU CÓDIGO ORIGINAL) ---
+# --- 2. SOLICITUDES (Tu lógica completa) ---
 elif seccion == "🌟 Solicitudes CRM":
     st.markdown("## 🌟 Formulario de Solicitudes Zoho CRM")
     ss = st.session_state
@@ -327,24 +336,23 @@ elif seccion == "🌟 Solicitudes CRM":
                             if k != "sol_tipo": ss[k] = defaults[k]
                     except Exception as e: st.error(f"Error: {e}")
 
-# --- 3. INCIDENCIAS CRM (CON IA MEJORADA V3.2) ---
+# --- 3. INCIDENCIAS CRM (V3.2 + Correo Nuevo) ---
 elif seccion == "🛠️ Incidencias CRM":
     st.markdown("## 🛠️ Reporte de Incidencias (IA)")
     
-    # --- SELECTOR FUERA DEL FORM ---
+    # Selector FUERA del form
     c_cat1, c_cat2 = st.columns([1, 2])
     with c_cat1: st.write("") 
     with c_cat2:
         cat = st.selectbox("📂 Categoría:", ["Desfase", "Reactivación", "Equivalencia", "Llamadas", "Zoho", "Otro"])
     
-    # --- AVISOS DINÁMICOS ---
     check_texto = "Confirmo que la información es correcta."
     if cat == "Reactivación":
-        st.warning("⚠️ **Favor de Revisar** Solo procede si el estado actual del Lead es **'Descartado'**.")
+        st.warning("⚠️ **REGLA DE ORO:** Solo procede si el estatus actual del Lead es **'Descartado'**.")
         check_texto = "✅ Confirmo que ya revisé en Zoho y el estatus es 'Descartado'."
     elif cat == "Desfase":
-        st.info("ℹ️ **REQUISITO:** Obligatorio adjuntar evidencia con captura de pantalla y en la descripción añadir el ID UAG.")
-        check_texto = "✅ Confirmo que adjuntaré la evidencia visual de PING, así como el ID UAG."
+        st.info("ℹ️ **REQUISITO:** Obligatorio adjuntar evidencia (PING vs Zoho).")
+        check_texto = "✅ Confirmo que adjuntaré la evidencia visual de PING."
 
     st.divider() 
     
@@ -383,7 +391,7 @@ elif seccion == "🛠️ Incidencias CRM":
                     if file: url = upload_to_gcs(file, f"{uuid4()}_{file.name}", file.type) or ""
                     row = [now_mx_str(), _email_norm(mail), asunto, cat, descripcion, link, "Pendiente", "", "", "", "", str(uuid4()), url]
                     with_backoff(sheet_incidencias.append_row, row)
-                    enviar_correo(f"Incidencia Aceptada: {asunto}", f"Recibido:\n{descripcion}", mail)
+                    enviar_correo(f"Incidencia Recibida: {asunto}", descripcion, mail)
                     st.success("✅ Incidencia registrada."); st.balloons(); time.sleep(2); st.rerun()
 
 # --- 4. MEJORAS ---
@@ -395,35 +403,101 @@ elif seccion == "📝 Mejoras y sugerencias":
             with_backoff(sheet_quejas.append_row, [now_mx_str(), m, t, d, "", "", "Pendiente"])
             st.success("✅ Enviado"); time.sleep(1); st.rerun()
 
-# --- 5. ADMIN (TU VERSIÓN ROBUSTA) ---
+# --- 5. ADMIN (COMPLETO Y RESTAURADO) ---
 elif seccion == "🔐 Zona Admin":
     st.markdown("## 🔐 Zona Administrativa")
+    
+    # 1. Lógica de Login Admin
     ADMIN_PASS = st.secrets.get("admin", {}).get("password", "")
     admin_ok = st.session_state.get("is_admin", False)
 
     if not admin_ok:
-        pwd = st.text_input("Contraseña Admin", type="password")
-        if st.button("Entrar"):
-            if pwd == ADMIN_PASS: st.session_state.is_admin = True; st.rerun()
-            else: st.error("Incorrecto")
+        with st.form("admin_login"):
+            pwd = st.text_input("Contraseña Admin", type="password")
+            if st.form_submit_button("Entrar"):
+                if pwd == ADMIN_PASS: 
+                    st.session_state.is_admin = True
+                    st.rerun()
+                else: st.error("❌ Contraseña incorrecta")
     else:
-        if st.button("Salir Admin"): del st.session_state.is_admin; st.rerun()
+        if st.button("Salir de Admin"):
+            del st.session_state.is_admin
+            st.rerun()
         
+        # 2. Tabs de Gestión
         tab1, tab2, tab3 = st.tabs(["Solicitudes", "Incidencias", "Quejas"])
         
+        # TAB 1: SOLICITUDES
         with tab1:
+            st.subheader("Gestión de Solicitudes")
             df = get_records_simple(sheet_solicitudes)
-            st.dataframe(df)
-            # (Aquí va tu lógica de eliminar/actualizar solicitudes que tenías antes)
+            st.dataframe(df, use_container_width=True)
+            
+            if not df.empty and "IDS" in df.columns:
+                ids = df[df["IDS"] != ""]["IDS"].unique().tolist()
+                if ids:
+                    sel_id = st.selectbox("Seleccionar ID para editar", ids, key="sel_sol")
+                    nuevo_estado = st.selectbox("Nuevo Estado", ["Pendiente", "En proceso", "Atendido"], key="st_sol")
+                    
+                    c1, c2 = st.columns(2)
+                    if c1.button("Actualizar Estado Solicitud"):
+                        cell = with_backoff(sheet_solicitudes.find, sel_id)
+                        if cell:
+                            # Asumiendo columna EstadoS es fija, busca el índice en header
+                            header = sheet_solicitudes.row_values(1)
+                            col_idx = header.index("EstadoS") + 1
+                            with_backoff(sheet_solicitudes.update_cell, cell.row, col_idx, nuevo_estado)
+                            st.success("Actualizado"); time.sleep(1); st.rerun()
+                            
+                    if c2.button("🗑️ Eliminar Solicitud"):
+                        cell = with_backoff(sheet_solicitudes.find, sel_id)
+                        if cell:
+                            with_backoff(sheet_solicitudes.delete_rows, cell.row)
+                            st.warning("Eliminado"); time.sleep(1); st.rerun()
 
+        # TAB 2: INCIDENCIAS
         with tab2:
+            st.subheader("Gestión de Incidencias")
             dfi = get_records_simple(sheet_incidencias)
-            st.dataframe(dfi)
-            # Aquí podrías poner el botón de RAG si quisieras en el futuro
+            st.dataframe(dfi, use_container_width=True)
             
+            if not dfi.empty and "IDI" in dfi.columns:
+                ids_i = dfi[dfi["IDI"] != ""]["IDI"].unique().tolist()
+                if ids_i:
+                    sel_idi = st.selectbox("Seleccionar ID Incidencia", ids_i, key="sel_inc")
+                    row_i = dfi[dfi["IDI"] == sel_idi].iloc[0]
+                    
+                    st.info(f"Asunto: {row_i.get('Asunto')} | Desc: {row_i.get('DescripcionI')}")
+                    
+                    nuevo_estado_i = st.selectbox("Estado", ["Pendiente", "En proceso", "Atendido"], index=["Pendiente", "En proceso", "Atendido"].index(row_i.get("EstadoI", "Pendiente")), key="st_inc")
+                    respuesta = st.text_area("Respuesta al Usuario", value=row_i.get("RespuestadeSolicitudI", ""))
+                    
+                    c1, c2 = st.columns(2)
+                    if c1.button("Guardar Cambios Incidencia"):
+                        cell = with_backoff(sheet_incidencias.find, sel_idi)
+                        if cell:
+                            header = sheet_incidencias.row_values(1)
+                            # Actualizamos Estado y Respuesta
+                            col_st = header.index("EstadoI") + 1
+                            col_resp = header.index("RespuestadeSolicitudI") + 1
+                            
+                            # Update batch
+                            sheet_incidencias.update_cell(cell.row, col_st, nuevo_estado_i)
+                            sheet_incidencias.update_cell(cell.row, col_resp, respuesta)
+                            st.success("Incidencia Actualizada"); time.sleep(1); st.rerun()
+                            
+                    if c2.button("🗑️ Eliminar Incidencia"):
+                        cell = with_backoff(sheet_incidencias.find, sel_idi)
+                        if cell:
+                            with_backoff(sheet_incidencias.delete_rows, cell.row)
+                            st.warning("Eliminado"); time.sleep(1); st.rerun()
+
+        # TAB 3: QUEJAS
         with tab3:
+            st.subheader("Gestión de Quejas")
             dfq = get_records_simple(sheet_quejas)
-            st.dataframe(dfq)
-            
+            st.dataframe(dfq, use_container_width=True)
+            # (Puedes agregar lógica similar de editar aquí si gustas, pero con visualizar suele bastar)
+
 st.sidebar.divider()
 if st.sidebar.button("Recargar"): st.rerun()
