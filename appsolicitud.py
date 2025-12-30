@@ -583,54 +583,86 @@ elif seccion == "🔐 Zona Admin":
         # 2. Tabs de Gestión
         tab1, tab2, tab3 = st.tabs(["Solicitudes (Altas/Bajas)", "Incidencias", "Quejas"])
         
+   # ===================== SECCIÓN: ADMIN (RESOLUCIÓN) =====================
+elif seccion == "🔐 Zona Admin":
+    st.markdown("## 🔐 Gestión de Tickets")
+    
+    # --- LISTA DE COPIAS PARA RESOLUCIONES ---
+    # Correos que recibirán copia cuando marques algo como "Atendido"
+    lista_supervisores = [
+        "luis.alpizar@edu.uag.mx", 
+        "carlos.sotelo@edu.uag.mx", 
+        "esther.diaz@edu.uag.mx"
+    ]
+
+    pwd = st.text_input("Admin Password", type="password")
+    if pwd == st.secrets.get("admin", {}).get("password") or st.session_state.get("is_admin"):
+        st.session_state.is_admin = True
+        
+        tab1, tab2 = st.tabs(["Solicitudes (Altas/Bajas)", "Incidencias (Soporte)"])
+        
         # ================= TAB 1: SOLICITUDES =================
         with tab1:
             st.subheader("Gestión de Solicitudes")
-            df = get_records_simple(sheet_solicitudes)
-            st.dataframe(df, use_container_width=True)
+            dfs = get_records_simple(sheet_solicitudes)
+            st.dataframe(dfs, use_container_width=True)
             
-            if not df.empty and "IDS" in df.columns:
-                ids = df[df["IDS"] != ""]["IDS"].unique().tolist()
+            if not dfs.empty and "ID" in dfs.columns:
+                ids = dfs[dfs["ID"] != ""]["ID"].unique().tolist()
                 if ids:
                     st.divider()
-                    c_sel, c_st = st.columns(2)
-                    sel_id = c_sel.selectbox("Seleccionar ID para gestionar", ids, key="sel_sol")
+                    # TRUCO UX: index=len(ids)-1 hace que seleccione el ÚLTIMO de la lista por defecto
+                    sel_id = st.selectbox("Seleccionar ID Solicitud", ids, index=len(ids)-1)
                     
-                    # Recuperamos datos de la fila seleccionada para saber a quién enviar el correo
-                    row_s = df[df["IDS"] == sel_id].iloc[0]
-                    correo_solicitante = row_s.get("CorreoSolicitanteS", "") # Asegúrate que esta columna exista o ajusta el nombre
-                    if not correo_solicitante and "Solicitante" in row_s: correo_solicitante = row_s["Solicitante"] # Intento de fallback
+                    row_s = dfs[dfs["ID"] == sel_id].iloc[0]
                     
-                    st.caption(f"Gestionando solicitud de: **{row_s.get('NombreS')}** | Solicitado por: **{correo_solicitante}**")
-
-                    nuevo_estado = c_st.selectbox("Nuevo Estado", ["Pendiente", "En proceso", "Atendido"], key="st_sol")
+                    st.info(f"Seleccionado: **{row_s.get('TipoS')}** - {row_s.get('NombreS')} ({row_s.get('CorreoS')})")
                     
-                    # --- CAMPO PARA CREDENCIALES O MENSAJE ---
-                    mensaje_respuesta = st.text_area("Mensaje de Resolución / Credenciales (Se enviará por correo si es 'Atendido')", 
-                                                   placeholder="Ej: Hola, el usuario ha sido creado. Usuario: x, Contraseña: y...")
+                    c_st, c_at = st.columns(2)
+                    estado_actual = row_s.get("EstadoS", "Pendiente")
+                    # Protegemos por si el estado actual no está en la lista
+                    idx_estado = ["Pendiente", "En proceso", "Atendido"].index(estado_actual) if estado_actual in ["Pendiente", "En proceso", "Atendido"] else 0
+                    
+                    nuevo_estado = c_st.selectbox("Estado", ["Pendiente", "En proceso", "Atendido"], index=idx_estado)
+                    mensaje_respuesta = st.text_area("Detalle de Resolución / Credenciales (Se enviará por correo)", value=row_s.get("RespuestaS", ""))
                     
                     c1, c2 = st.columns(2)
-                    if c1.button("💾 Actualizar y Notificar"):
+                    if c1.button("💾 Actualizar Solicitud"):
                         cell = with_backoff(sheet_solicitudes.find, sel_id)
                         if cell:
                             header = sheet_solicitudes.row_values(1)
-                            # Actualizamos Estado
-                            col_idx = header.index("EstadoS") + 1
-                            with_backoff(sheet_solicitudes.update_cell, cell.row, col_idx, nuevo_estado)
+                            # Buscamos índices de columnas
+                            col_st = header.index("EstadoS") + 1
+                            col_resp = header.index("RespuestaS") + 1
                             
-                            # --- ENVÍO DE CORREO DE RESOLUCIÓN ---
+                            # Actualizamos Sheet
+                            sheet_solicitudes.update_cell(cell.row, col_st, nuevo_estado)
+                            sheet_solicitudes.update_cell(cell.row, col_resp, mensaje_respuesta)
+                            
+                            correo_solicitante = row_s.get("CorreoSolicitante")
+                            
+                            # --- ENVÍO DE CORREO DE RESOLUCIÓN (SOLICITUDES) ---
                             if nuevo_estado == "Atendido" and mensaje_respuesta and correo_solicitante:
                                 try:
                                     yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
                                     headers = {"From": f"Equipo CRM <{st.secrets['email']['user']}>"}
                                     html_resp = f"""
-                                    <h3 style="color: green;">¡Solicitud Atendida!</h3>
-                                    <p>Tu solicitud <strong>{row_s.get('TipoS')} - {row_s.get('NombreS')}</strong> ha sido completada.</p>
-                                    <p><strong>Detalle / Credenciales:</strong></p>
-                                    <pre style="background: #f4f4f4; padding: 10px;">{mensaje_respuesta}</pre>
-                                    <p>Saludos,<br>Equipo CRM</p>
+                                    <div style="font-family: Arial, sans-serif; color: #333;">
+                                        <h3 style="color: green;">¡Solicitud Atendida!</h3>
+                                        <p>Tu solicitud <strong>{row_s.get('TipoS')} - {row_s.get('NombreS')}</strong> ha sido completada.</p>
+                                        <p><strong>Detalle / Credenciales:</strong></p>
+                                        <pre style="background: #f4f4f4; padding: 10px; border: 1px solid #ddd;">{mensaje_respuesta}</pre>
+                                        <p>Saludos,<br>Equipo CRM</p>
+                                    </div>
                                     """
-                                    yag.send(to=correo_solicitante, subject=f"✅ Finalizado: {row_s.get('TipoS')} - {row_s.get('NombreS')}", contents=[html_resp], headers=headers)
+                                    # AQUÍ AGREGAMOS EL CC
+                                    yag.send(
+                                        to=correo_solicitante, 
+                                        cc=lista_supervisores,  # <--- COPIA A JEFES
+                                        subject=f"✅ Finalizado: {row_s.get('TipoS')} - {row_s.get('NombreS')}", 
+                                        contents=[html_resp], 
+                                        headers=headers
+                                    )
                                     st.toast("📧 Correo de credenciales enviado exitosamente.")
                                 except Exception as e: st.error(f"Se guardó pero falló el correo: {e}")
 
@@ -652,14 +684,19 @@ elif seccion == "🔐 Zona Admin":
                 ids_i = dfi[dfi["IDI"] != ""]["IDI"].unique().tolist()
                 if ids_i:
                     st.divider()
-                    sel_idi = st.selectbox("Seleccionar ID Incidencia", ids_i, key="sel_inc")
+                    # TRUCO UX: index=len(ids_i)-1 selecciona el ÚLTIMO por defecto
+                    sel_idi = st.selectbox("Seleccionar ID Incidencia", ids_i, index=len(ids_i)-1, key="sel_inc")
+                    
                     row_i = dfi[dfi["IDI"] == sel_idi].iloc[0]
                     correo_usuario_i = row_i.get("CorreoI")
                     
                     st.info(f"Asunto: **{row_i.get('Asunto')}** | Usuario: {correo_usuario_i}")
                     
                     c_st_i, c_at_i = st.columns(2)
-                    nuevo_estado_i = c_st_i.selectbox("Estado", ["Pendiente", "En proceso", "Atendido"], index=["Pendiente", "En proceso", "Atendido"].index(row_i.get("EstadoI", "Pendiente")), key="st_inc")
+                    estado_actual_i = row_i.get("EstadoI", "Pendiente")
+                    idx_estado_i = ["Pendiente", "En proceso", "Atendido"].index(estado_actual_i) if estado_actual_i in ["Pendiente", "En proceso", "Atendido"] else 0
+                    
+                    nuevo_estado_i = c_st_i.selectbox("Estado", ["Pendiente", "En proceso", "Atendido"], index=idx_estado_i, key="st_inc")
                     
                     respuesta = st.text_area("Respuesta Técnica al Usuario (Se enviará por correo)", value=row_i.get("RespuestadeSolicitudI", ""))
                     
@@ -675,34 +712,42 @@ elif seccion == "🔐 Zona Admin":
                             sheet_incidencias.update_cell(cell.row, col_st, nuevo_estado_i)
                             sheet_incidencias.update_cell(cell.row, col_resp, respuesta)
                             
-                            # --- ENVÍO DE CORREO DE RESOLUCIÓN ---
+                            # --- ENVÍO DE CORREO DE RESOLUCIÓN (INCIDENCIAS) ---
                             if nuevo_estado_i == "Atendido" and respuesta and correo_usuario_i:
                                 try:
                                     yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
                                     headers = {"From": f"Equipo CRM <{st.secrets['email']['user']}>"}
                                     html_resp = f"""
-                                    <h3 style="color: green;">Incidencia Resuelta</h3>
-                                    <p>Hola,</p>
-                                    <p>Tu reporte con asunto: <strong>{row_i.get('Asunto')}</strong> ha sido marcado como <strong>Atendido</strong>.</p>
-                                    <hr>
-                                    <p><strong>Respuesta del equipo técnico:</strong></p>
-                                    <p style="background: #e8f4fd; padding: 15px; border-left: 4px solid #004B93;">{respuesta}</p>
-                                    <hr>
-                                    <p>Si consideras que esto no resuelve tu problema, por favor responde a este correo.</p>
-                                    <p>Atentamente,<br>Soporte CRM</p>
+                                    <div style="font-family: Arial, sans-serif; color: #333;">
+                                        <h3 style="color: green;">Incidencia Resuelta</h3>
+                                        <p>Hola,</p>
+                                        <p>Tu reporte con asunto: <strong>{row_i.get('Asunto')}</strong> ha sido marcado como <strong>Atendido</strong>.</p>
+                                        <hr>
+                                        <p><strong>Respuesta del equipo técnico:</strong></p>
+                                        <p style="background: #e8f4fd; padding: 15px; border-left: 4px solid #004B93;">{respuesta}</p>
+                                        <hr>
+                                        <p>Si consideras que esto no resuelve tu problema, por favor responde a este correo.</p>
+                                        <p>Atentamente,<br>Soporte CRM</p>
+                                    </div>
                                     """
-                                    yag.send(to=correo_usuario_i, subject=f"✅ Resuelto: {row_i.get('Asunto')}", contents=[html_resp], headers=headers)
+                                    # AQUÍ AGREGAMOS EL CC
+                                    yag.send(
+                                        to=correo_usuario_i, 
+                                        cc=lista_supervisores, # <--- COPIA A JEFES
+                                        subject=f"✅ Resuelto: {row_i.get('Asunto')}", 
+                                        contents=[html_resp], 
+                                        headers=headers
+                                    )
                                     st.toast("📧 Notificación enviada al usuario.")
                                 except Exception as e: st.error(f"Se guardó el dato pero falló el correo: {e}")
 
-                            st.success("Incidencia actualizada y usuario notificado."); time.sleep(2); st.rerun()
+                            st.success("✅ Estado actualizado."); time.sleep(2); st.rerun()
                             
                     if c2.button("🗑️ Eliminar Incidencia"):
                         cell = with_backoff(sheet_incidencias.find, sel_idi)
                         if cell:
                             with_backoff(sheet_incidencias.delete_rows, cell.row)
                             st.warning("Eliminado"); time.sleep(1); st.rerun()
-
         # TAB 3: QUEJAS
         with tab3:
             st.subheader("Gestión de Quejas")
