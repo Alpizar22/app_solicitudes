@@ -234,14 +234,19 @@ def enviar_correo(asunto, cuerpo_detalle, para):
         
         yag = yagmail.SMTP(user=user_email, password=password)
         
-        # Copia oculta al equipo (opcional, puedes quitarlo si prefieres)
+        # --- LISTA DE COPIAS (CC) ---
+        # Aquí pones los correos de los jefes/supervisores.
+        # Al ponerlos aquí, se aplicará para TODOS los envíos del sistema.
+        cc_list = [
+            "luis.alpizar@edu.uag.mx", 
+            "carlos.sotelo@edu.uag.mx", 
+            "esther.diaz@edu.uag.mx"
+        ]
+
         to = [para]
-        
-        # --- AQUÍ ESTÁ EL TRUCO DEL NOMBRE ---
-        # Esto hace que llegue como "Equipo CRM" en lugar de "Luis Alpizar"
         headers = {"From": f"Equipo CRM <{user_email}>"}
         
-        # --- NUEVO MENSAJE DE "ACUSE DE RECIBO" ---
+        # --- TU DISEÑO HTML (INTACTO) ---
         mensaje_html = f"""
         <div style="font-family: Arial, sans-serif; color: #333;">
             <h2 style="color: #004B93;">Confirmación de Recepción</h2>
@@ -258,7 +263,16 @@ def enviar_correo(asunto, cuerpo_detalle, para):
         </div>
         """
         
-        yag.send(to=to, subject=f"Recibido: {asunto}", contents=[mensaje_html], headers=headers)
+        # --- EL ENVÍO CON CC ---
+        yag.send(
+            to=to, 
+            cc=cc_list,  # <--- AQUÍ SE AGREGAN LAS COPIAS
+            subject=f"Recibido: {asunto}", 
+            contents=[mensaje_html], 
+            headers=headers
+        )
+        print(f"Correo enviado a {to} con copia a {cc_list}")
+
     except Exception as e: 
         print(f"Error enviando correo: {e}")
 
@@ -277,7 +291,7 @@ seccion = nav[idx]
 
 # --- 1. ESTADO ---
 if seccion == "🔍 Ver el estado de mis solicitudes":
-    st.markdown("## 🔍 Mis Trámites")
+    st.markdown("## 🔍 Mis Tickets")
     if not st.session_state.usuario_logueado:
         with st.form("log"):
             pw = st.text_input("Contraseña", type="password")
@@ -490,11 +504,11 @@ elif seccion == "🛠️ Incidencias CRM":
     
     check_texto = "Confirmo que la información es correcta."
     if cat == "Reactivación":
-        st.warning("⚠️ **REGLA DE ORO:** Solo procede si el estatus actual del Lead es **'Descartado'**.")
+        st.warning("⚠️ **Favor de Revisar** Solo procede si el estatus actual del Lead es **'Descartado'**.")
         check_texto = "✅ Confirmo que ya revisé en Zoho y el estatus es 'Descartado'."
     elif cat == "Desfase":
-        st.info("ℹ️ **REQUISITO:** Obligatorio adjuntar evidencia (PING vs Zoho).")
-        check_texto = "✅ Confirmo que adjuntaré la evidencia visual de PING."
+        st.info("ℹ️ **REQUISITO:** Obligatorio adjuntar evidencia (PING vs Zoho) así como el ID UAG del aspirante en la descripción.")
+        check_texto = "✅ Confirmo que adjuntaré la evidencia visual de PING así como ID UAG."
 
     st.divider() 
     
@@ -518,7 +532,7 @@ elif seccion == "🛠️ Incidencias CRM":
             st.error("🛑 **Link Inválido:** Debe ser un enlace de Zoho CRM.")
         else:
             tiene_archivo = file is not None
-            with st.spinner("🤖 Validando reglas del Manual..."):
+            with st.spinner("🤖 Validando ticket..."):
                 desc_completa = f"{descripcion}. [Usuario confirmó: {confirmacion}]"
                 es_valido, motivo = validar_incidencia_con_ia(asunto, desc_completa, cat, link, tiene_archivo)
             
