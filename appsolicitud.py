@@ -206,8 +206,14 @@ def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunt
 # =========================
 # Datos y Funciones Aux
 # =========================
-sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
-sheet_solicitudes, sheet_incidencias, sheet_quejas, sheet_usuarios, sheet_accesos = sheets["Sheet1"], sheets["Incidencias"], sheets["Quejas"], sheets["Usuarios"], sheets["Accesos"]
+sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios", "Historial_IA"]}
+
+# Creamos las variables
+sheet_solicitudes = sheets["Sheet1"]
+sheet_incidencias = sheets["Incidencias"]
+sheet_quejas = sheets["Quejas"]
+sheet_usuarios = sheets["Usuarios"]
+sheet_historial = sheets["Historial_IA"]
 
 def get_records_simple(_ws) -> pd.DataFrame:
     try:
@@ -280,14 +286,123 @@ def do_login(m): st.session_state.update({"usuario_logueado": _email_norm(m), "s
 def do_logout(): st.session_state.clear(); st.rerun()
 if "usuario_logueado" not in st.session_state: st.session_state.usuario_logueado = None
 
-# =========================
-# NAVEGACIÓN
-# =========================
-nav = ["🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "📝 Mejoras y sugerencias", "🔐 Zona Admin"]
+
+# ---------------------------------------------------------
+# BLOQUE DE NAVEGACIÓN (Este debe ir ANTES de cualquier 'if seccion')
+# ---------------------------------------------------------
+
+# Agregamos la opción del Asistente al principio
+nav = ["🏠 Asistente IA 24/7", "🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "📝 Mejoras", "🔐 Zona Admin"]
+
 if 'nav_index' not in st.session_state: st.session_state.nav_index = 0
 idx = st.sidebar.radio("Menú", range(len(nav)), format_func=lambda i: nav[i], index=st.session_state.nav_index)
 st.session_state.nav_index = idx
+
+# ¡AQUÍ NACE LA VARIABLE!
 seccion = nav[idx]
+
+# =========================
+# 1. FUNCIÓN DE CARGA DE CONOCIMIENTO (AGREGAR AL INICIO CON TUS OTRAS FUNCIONES)
+# =========================
+
+@st.cache_data
+def cargar_conocimiento():
+    conocimiento = ""
+    archivos = ["Solicitudes CRM_original.txt", "Incidencias_original.txt"]
+    
+    for archivo in archivos:
+        contenido = ""
+        # Intentamos leer con diferentes codificaciones
+        codificaciones = ["utf-8", "utf-16", "latin-1"]
+        
+        for codificacion in codificaciones:
+            try:
+                with open(archivo, "r", encoding=codificacion) as f:
+                    contenido = f.read()
+                # Si leemos con éxito, rompemos el bucle y procesamos
+                break 
+            except (UnicodeDecodeError, FileNotFoundError):
+                continue # Si falla, probamos la siguiente codificación
+        
+        if contenido:
+            conocimiento += f"\n--- CONOCIMIENTO DE {archivo} ---\n{contenido}\n"
+        else:
+            print(f"⚠️ Advertencia: No se pudo leer {archivo} con ninguna codificación.")
+    
+    return conocimiento
+
+# ===================== SECCIÓN: ASISTENTE IA (PORTERO EXPERTO) =====================
+
+
+if seccion == "🏠 Asistente IA 24/7":
+    st.markdown("## 🤖 Tu Asistente CRM 24/7 (Experto)")
+    st.info("👋 **Hola.** Soy tu respaldo técnico. Conozco los procesos exactos de Altas, Bajas e Incidencias.")
+
+    # Historial visual (Chat en pantalla)
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("Escribe tu duda (ej: 'Tengo un desfase', 'Quiero una baja')..."):
+        # 1. Mostrar mensaje del usuario
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # 2. Generar respuesta IA
+        with st.chat_message("assistant"):
+            with st.spinner("Consultando manuales..."):
+                try:
+                    client_ai = get_openai_client()
+                    if client_ai:
+                        base_conocimiento = cargar_conocimiento()
+                        
+                        contexto = f"""
+                        ERES EL SOPORTE TÉCNICO EXPERTO DEL CRM UAG.
+                        TU FUENTE DE VERDAD: {base_conocimiento}
+                        TU MISIÓN: Responde basándote en la fuente.
+                        REGLAS:
+                        1. Si es INCIDENCIA -> Ve a '🛠️ Incidencias CRM'.
+                        2. Si es SOLICITUD -> Ve a '🌟 Solicitudes CRM'.
+                        3. Sé breve y profesional.
+                        4. Prohibido ser Grosero
+                        """
+                        
+                        resp = client_ai.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": contexto},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.0
+                        )
+                        reply = resp.choices[0].message.content
+                        
+                        # --- 🔴 AQUÍ GUARDAMOS EN EXCEL (AUDITORÍA) ---
+                        # Obtenemos usuario (si está logueado) o ponemos "Anónimo"
+                        usuario_actual = st.session_state.usuario_logueado if st.session_state.usuario_logueado else "Anónimo/Invitado"
+                        
+                        # Fila: [Fecha, Usuario, Pregunta, Respuesta]
+                        log_row = [now_mx_str(), usuario_actual, prompt, reply]
+                        
+                        # Guardamos en segundo plano (para no alentar el chat)
+                        try:
+                            with_backoff(sheet_historial.append_row, log_row)
+                        except Exception as e:
+                            print(f"No se pudo guardar historial: {e}")
+                        # ---------------------------------------------
+
+                    else:
+                        reply = "La IA no está conectada."
+                except Exception as e:
+                    reply = f"Error: {e}"
+                
+                st.markdown(reply)
+                st.session_state.messages.append({"role": "assistant", "content": reply})
+
 
 # --- 1. ESTADO (CORREGIDO: AHORA MUESTRA SOLICITUDES E INCIDENCIAS) ---
 if seccion == "🔍 Ver el estado de mis solicitudes":
