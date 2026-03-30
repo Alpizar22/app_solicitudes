@@ -223,6 +223,7 @@ except:
     sheet_cerebro = None
     print("⚠️ Advertencia: No se encontró la hoja 'Cerebro' en Google Sheets.")
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_records_simple(_ws) -> pd.DataFrame:
     try:
         v = with_backoff(_ws.get_all_values)
@@ -254,9 +255,7 @@ def enviar_correo(asunto, cuerpo_detalle, para):
         cc_list = [
             "luis.alpizar@edu.uag.mx", 
             "carlos.sotelo@edu.uag.mx", 
-            "esther.diaz@edu.uag.mx",
-            "jesus.zaragoza@edu.uag.mx",
-            "lourdes.romo@edu.uag.mx"
+            "esther.diaz@edu.uag.mx"
         ]
 
         to = [para]
@@ -883,9 +882,7 @@ elif seccion == "🔐 Zona Admin":
     lista_supervisores = [
         "luis.alpizar@edu.uag.mx", 
         "carlos.sotelo@edu.uag.mx", 
-        "esther.diaz@edu.uag.mx",
-        "jesus.zaragoza@edu.uag.mx",
-        "lourdes.romo@edu.uag.mx"
+        "esther.diaz@edu.uag.mx"
     ]
 
     pwd = st.text_input("Contraseña Admin", type="password")
@@ -896,68 +893,68 @@ elif seccion == "🔐 Zona Admin":
         
         tab1, tab2, tab3, tab4 = st.tabs(["Solicitudes", "Incidencias", "Quejas", "🧠 Cerebro IA"])
 
-# ================= TAB 4: ENTRENAMIENTO IA (PERSISTENTE) =================
-    with tab4:
-        st.subheader("🧠 Gestión del Conocimiento (Cerebro IA)")
-        st.info("Este texto se guarda en la celda A1 de la hoja 'Cerebro' en Google Sheets. Es la memoria de tu Asistente.")
+        # ================= TAB 4: ENTRENAMIENTO IA (PERSISTENTE) =================
+        with tab4:
+            st.subheader("🧠 Gestión del Conocimiento (Cerebro IA)")
+            st.info("Este texto se guarda en la celda A1 de la hoja 'Cerebro' en Google Sheets. Es la memoria de tu Asistente.")
 
-        # Leemos lo actual
-        try:
-            contenido_actual = sheet_cerebro.acell('A1').value or ""
-        except:
-            contenido_actual = ""
+            # Leemos lo actual
+            try:
+                contenido_actual = sheet_cerebro.acell('A1').value or ""
+            except:
+                contenido_actual = ""
 
-        col_edit, col_preview = st.columns([2, 1])
+            col_edit, col_preview = st.columns([2, 1])
         
-        with col_edit:
-            st.markdown("### ✏️ Editor Maestro")
-            nuevo_contenido = st.text_area("Base de Conocimiento", value=contenido_actual, height=500, key="txt_cerebro_sheet")
+            with col_edit:
+                st.markdown("### ✏️ Editor Maestro")
+                nuevo_contenido = st.text_area("Base de Conocimiento", value=contenido_actual, height=500, key="txt_cerebro_sheet")
             
-            if st.button("💾 Guardar en la Nube"):
-                with st.spinner("Guardando..."):
-                    try:
-                        with_backoff(sheet_cerebro.update_acell, 'A1', nuevo_contenido)
-                        cargar_conocimiento.clear() # Limpiamos caché
-                        st.success("✅ Guardado exitoso.")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {e}")
-
-        with col_preview:
-            st.markdown("### 📥 Ingestar PDFs")
-            pdfs = st.file_uploader("Subir PDFs", type="pdf", accept_multiple_files=True)
-            
-            if st.button("⚙️ Procesar y Anexar"):
-                if not pdfs:
-                    st.warning("Sin archivos.")
-                else:
-                    texto_pdf_total = ""
-                    bar = st.progress(0)
-                    for idx, pdf_file in enumerate(pdfs):
+                if st.button("💾 Guardar en la Nube"):
+                    with st.spinner("Guardando..."):
                         try:
-                            reader = PdfReader(pdf_file)
-                            texto_local = ""
-                            for page in reader.pages:
-                                texto_local += page.extract_text() + "\n"
-                            texto_pdf_total += f"\n\n--- FUENTE: {pdf_file.name} ---\n{texto_local}"
-                            bar.progress((idx + 1) / len(pdfs))
-                        except: pass
+                            with_backoff(sheet_cerebro.update_acell, 'A1', nuevo_contenido)
+                            cargar_conocimiento.clear() # Limpiamos caché
+                            st.success("✅ Guardado exitoso.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+
+            with col_preview:
+                st.markdown("### 📥 Ingestar PDFs")
+                pdfs = st.file_uploader("Subir PDFs", type="pdf", accept_multiple_files=True)
+            
+                if st.button("⚙️ Procesar y Anexar"):
+                    if not pdfs:
+                        st.warning("Sin archivos.")
+                    else:
+                        texto_pdf_total = ""
+                        bar = st.progress(0)
+                        for idx, pdf_file in enumerate(pdfs):
+                            try:
+                                reader = PdfReader(pdf_file)
+                                texto_local = ""
+                                for page in reader.pages:
+                                    texto_local += page.extract_text() + "\n"
+                                texto_pdf_total += f"\n\n--- FUENTE: {pdf_file.name} ---\n{texto_local}"
+                                bar.progress((idx + 1) / len(pdfs))
+                            except: pass
                     
-                    contenido_final = nuevo_contenido + texto_pdf_total
+                        contenido_final = nuevo_contenido + texto_pdf_total
                     
-                    # Validar límite (aprox 50k caracteres por celda)
-                    if len(contenido_final) > 49000:
-                        st.warning(f"⚠️ ¡Ojo! El texto ({len(contenido_final)}) está cerca del límite de la celda (50k).")
+                        # Validar límite (aprox 50k caracteres por celda)
+                        if len(contenido_final) > 49000:
+                            st.warning(f"⚠️ ¡Ojo! El texto ({len(contenido_final)}) está cerca del límite de la celda (50k).")
                     
-                    with_backoff(sheet_cerebro.update_acell, 'A1', contenido_final)
-                    cargar_conocimiento.clear()
-                    st.success("✅ PDFs procesados.")
-                    time.sleep(2)
-                    st.rerun()
+                        with_backoff(sheet_cerebro.update_acell, 'A1', contenido_final)
+                        cargar_conocimiento.clear()
+                        st.success("✅ PDFs procesados.")
+                        time.sleep(2)
+                        st.rerun()
 
         
-        # ================= TAB 1: SOLICITUDES (CORREGIDO IDS y EMAILS) =================
+            # ================= TAB 1: SOLICITUDES (CORREGIDO IDS y EMAILS) =================
         with tab1:
             st.subheader("Gestión de Solicitudes")
             with st.spinner("Cargando..."):
