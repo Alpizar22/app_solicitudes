@@ -1100,65 +1100,65 @@ elif seccion == "🔐 Zona Admin":
                                 st.warning("Eliminado"); time.sleep(1); st.rerun()
 
   # ================= TAB 3: GESTIÓN UNIFICADA (En hoja Quejas) =================
-    with tab3:
-        st.subheader("Gestión de Accesos, Quejas y Sugerencias")
+        with tab3:
+            st.subheader("Gestión de Accesos, Quejas y Sugerencias")
         
-        # Leemos de QUEJAS
-        dfq = get_records_simple(sheet_quejas)
+            # Leemos de QUEJAS
+            dfq = get_records_simple(sheet_quejas)
         
-        if dfq.empty:
-            st.info("No hay registros pendientes.")
-        else:
-            st.dataframe(dfq, use_container_width=True)
+            if dfq.empty:
+                st.info("No hay registros pendientes.")
+            else:
+                st.dataframe(dfq, use_container_width=True)
             
-            # Buscamos la columna ID (En tu hoja Quejas suele ser IDQ o ID)
-            # Ajusta "IDQ" si así se llama en tu Excel, o "ID" si es genérico.
-            col_id_target = "IDQ" if "IDQ" in dfq.columns else "ID"
+                # Buscamos la columna ID (En tu hoja Quejas suele ser IDQ o ID)
+                # Ajusta "IDQ" si así se llama en tu Excel, o "ID" si es genérico.
+                col_id_target = "IDQ" if "IDQ" in dfq.columns else "ID"
             
-            if col_id_target in dfq.columns:
-                ids_q = dfq[dfq[col_id_target] != ""][col_id_target].unique().tolist()
+                if col_id_target in dfq.columns:
+                    ids_q = dfq[dfq[col_id_target] != ""][col_id_target].unique().tolist()
                 
-                if ids_q:
-                    st.divider()
-                    # Selector inteligente
-                    sel_id_q = st.selectbox("Seleccionar Registro", ids_q, format_func=lambda x: f"{x} - {dfq[dfq[col_id_target]==x].iloc[0].get('TipoQ', 'Registro')}")
+                    if ids_q:
+                        st.divider()
+                        # Selector inteligente
+                        sel_id_q = st.selectbox("Seleccionar Registro", ids_q, format_func=lambda x: f"{x} - {dfq[dfq[col_id_target]==x].iloc[0].get('TipoQ', 'Registro')}")
                     
-                    row_q = dfq[dfq[col_id_target] == sel_id_q].iloc[0]
+                        row_q = dfq[dfq[col_id_target] == sel_id_q].iloc[0]
                     
-                    # Nombres de columnas basados en tu hoja Quejas (ajusta si difieren)
-                    tipo_val = row_q.get('TipoQ') or row_q.get('Tipo')
-                    correo_val = row_q.get('CorreoQ') or row_q.get('Correo')
-                    desc_val = row_q.get('DescripciónQ') or row_q.get('Justificacion') or row_q.get('Detalle')
-                    estado_val = row_q.get('EstadoQ') or row_q.get('Estado') or "Pendiente"
-                    resp_val = row_q.get('RespuestaQ') or row_q.get('RespuestaAdmin') or ""
+                        # Nombres de columnas basados en tu hoja Quejas (ajusta si difieren)
+                        tipo_val = row_q.get('TipoQ') or row_q.get('Tipo')
+                        correo_val = row_q.get('CorreoQ') or row_q.get('Correo')
+                        desc_val = row_q.get('DescripciónQ') or row_q.get('Justificacion') or row_q.get('Detalle')
+                        estado_val = row_q.get('EstadoQ') or row_q.get('Estado') or "Pendiente"
+                        resp_val = row_q.get('RespuestaQ') or row_q.get('RespuestaAdmin') or ""
                     
-                    st.markdown(f"**Tipo:** {tipo_val} | **Solicitante:** {correo_val}")
-                    st.warning(f"**Detalle:** {desc_val}")
+                        st.markdown(f"**Tipo:** {tipo_val} | **Solicitante:** {correo_val}")
+                        st.warning(f"**Detalle:** {desc_val}")
                     
-                    c_st_q, c_dummy = st.columns(2)
-                    opts_q = ["Pendiente", "Aprobado", "Rechazado", "En Revisión", "Atendido"]
-                    idx_q = opts_q.index(estado_val) if estado_val in opts_q else 0
+                        c_st_q, c_dummy = st.columns(2)
+                        opts_q = ["Pendiente", "Aprobado", "Rechazado", "En Revisión", "Atendido"]
+                        idx_q = opts_q.index(estado_val) if estado_val in opts_q else 0
                     
-                    nuevo_estado = c_st_q.selectbox("Estado", opts_q, index=idx_q, key="st_fusion_q")
-                    nueva_resp = st.text_area("Respuesta Admin", value=resp_val, key="rsp_fusion_q")
+                        nuevo_estado = c_st_q.selectbox("Estado", opts_q, index=idx_q, key="st_fusion_q")
+                        nueva_resp = st.text_area("Respuesta Admin", value=resp_val, key="rsp_fusion_q")
                     
-                    if st.button("💾 Guardar Cambios"):
-                        cell = with_backoff(sheet_quejas.find, sel_id_q)
-                        if cell:
-                            # En hoja Quejas: Columna 7 es Estado, Columna 11 es Respuesta
-                            sheet_quejas.update_cell(cell.row, 7, nuevo_estado)
-                            sheet_quejas.update_cell(cell.row, 11, nueva_resp)
+                        if st.button("💾 Guardar Cambios"):
+                            cell = with_backoff(sheet_quejas.find, sel_id_q)
+                            if cell:
+                                # En hoja Quejas: Columna 7 es Estado, Columna 11 es Respuesta
+                                sheet_quejas.update_cell(cell.row, 7, nuevo_estado)
+                                sheet_quejas.update_cell(cell.row, 11, nueva_resp)
                             
-                            # Notificar
-                            if nuevo_estado in ["Aprobado", "Rechazado", "Atendido"]:
-                                asunto_mail = f"Actualización: {tipo_val}"
-                                body_mail = f"<p>Estado actualizado a: <strong>{nuevo_estado}</strong>.</p><p>Respuesta: {nueva_resp}</p>"
-                                try:
-                                    yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
-                                    yag.send(to=correo_val, subject=asunto_mail, contents=[body_mail])
-                                    st.toast("📧 Notificación enviada.")
-                                except: pass
+                                # Notificar
+                                if nuevo_estado in ["Aprobado", "Rechazado", "Atendido"]:
+                                    asunto_mail = f"Actualización: {tipo_val}"
+                                    body_mail = f"<p>Estado actualizado a: <strong>{nuevo_estado}</strong>.</p><p>Respuesta: {nueva_resp}</p>"
+                                    try:
+                                        yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
+                                        yag.send(to=correo_val, subject=asunto_mail, contents=[body_mail])
+                                        st.toast("📧 Notificación enviada.")
+                                    except: pass
                             
-                            st.success("Registro actualizado.")
-                            time.sleep(1)
-                            st.rerun()
+                                st.success("Registro actualizado.")
+                                time.sleep(1)
+                                st.rerun()
