@@ -288,6 +288,75 @@ def do_logout(): st.session_state.clear(); st.rerun()
 if "usuario_logueado" not in st.session_state: st.session_state.usuario_logueado = None
 
 
+
+# =========================
+# ⭐ AUTO-CALIFICACIÓN (3 días sin calificar → 👍)
+# =========================
+def auto_calificar_vencidos():
+    """
+    Revisa Sheet1 (col Q = CalificacionS) e Incidencias (col J = SatisfaccionI).
+    Si llevan más de 3 días en "Atendido" sin calificación, pone 👍 automáticamente.
+    Se ejecuta silenciosamente cada vez que carga la app.
+    """
+    limite = timedelta(days=3)
+    ahora  = datetime.now(TZ_MX)
+
+    # --- SHEET1: Solicitudes ---
+    try:
+        header_s = sheet_solicitudes.row_values(1)
+        if "FechaS" in header_s and "EstadoS" in header_s and "CalificacionS" in header_s:
+            col_fecha  = header_s.index("FechaS") + 1
+            col_estado = header_s.index("EstadoS") + 1
+            col_calif  = header_s.index("CalificacionS") + 1   # columna Q
+
+            all_rows = sheet_solicitudes.get_all_values()[1:]   # sin encabezado
+            updates  = []
+            for i, row in enumerate(all_rows):
+                estado = row[col_estado - 1] if len(row) >= col_estado else ""
+                calif  = row[col_calif  - 1] if len(row) >= col_calif  else ""
+                fecha  = row[col_fecha  - 1] if len(row) >= col_fecha  else ""
+                if estado == "Atendido" and not calif.strip():
+                    try:
+                        fecha_dt = datetime.strptime(fecha, "%d/%m/%Y %H:%M:%S")
+                        fecha_dt = fecha_dt.replace(tzinfo=TZ_MX)
+                        if ahora - fecha_dt >= limite:
+                            updates.append({"range": f"{chr(64+col_calif)}{i+2}", "values": [["👍"]]})
+                    except: pass
+            if updates:
+                sheet_solicitudes.batch_update(updates)
+                get_records_simple.clear()   # invalidar caché
+    except Exception as e:
+        print(f"Auto-calif solicitudes: {e}")
+
+    # --- INCIDENCIAS ---
+    try:
+        header_i = sheet_incidencias.row_values(1)
+        if "FechaI" in header_i and "EstadoI" in header_i and "SatisfaccionI" in header_i:
+            col_fecha  = header_i.index("FechaI") + 1
+            col_estado = header_i.index("EstadoI") + 1
+            col_calif  = header_i.index("SatisfaccionI") + 1    # columna J
+
+            all_rows = sheet_incidencias.get_all_values()[1:]
+            updates  = []
+            for i, row in enumerate(all_rows):
+                estado = row[col_estado - 1] if len(row) >= col_estado else ""
+                calif  = row[col_calif  - 1] if len(row) >= col_calif  else ""
+                fecha  = row[col_fecha  - 1] if len(row) >= col_fecha  else ""
+                if estado == "Atendido" and not calif.strip():
+                    try:
+                        fecha_dt = datetime.strptime(fecha, "%d/%m/%Y %H:%M:%S")
+                        fecha_dt = fecha_dt.replace(tzinfo=TZ_MX)
+                        if ahora - fecha_dt >= limite:
+                            updates.append({"range": f"{chr(64+col_calif)}{i+2}", "values": [["👍"]]})
+                    except: pass
+            if updates:
+                sheet_incidencias.batch_update(updates)
+                get_records_simple.clear()
+    except Exception as e:
+        print(f"Auto-calif incidencias: {e}")
+
+# auto_calificar_vencidos() — se ejecuta desde el botón en Admin
+
 # ---------------------------------------------------------
 # BLOQUE DE NAVEGACIÓN (Este debe ir ANTES de cualquier 'if seccion')
 # ---------------------------------------------------------
@@ -848,11 +917,17 @@ elif seccion == "🔐 Zona Admin":
     st.markdown("## 🔐 Zona Administrativa")
 
     # 1. BOTÓN DE EMERGENCIA
-    col_refresh, col_spacer = st.columns([1, 4])
+    col_refresh, col_calif, col_spacer = st.columns([1, 2, 3])
     if col_refresh.button("🔄 Refrescar Conexión"):
         st.cache_resource.clear()
         st.cache_data.clear()
         st.toast("♻️ Conexión reiniciada...")
+        time.sleep(1)
+        st.rerun()
+    if col_calif.button("⭐ Auto-calificar vencidos (3 días)"):
+        with st.spinner("Revisando registros sin calificación..."):
+            auto_calificar_vencidos()
+        st.success("✅ Revisión completada. Registros sin calificar después de 3 días → 👍")
         time.sleep(1)
         st.rerun()
 
@@ -933,6 +1008,12 @@ elif seccion == "🔐 Zona Admin":
                                                 <h3 style="color: green;">¡Solicitud Atendida!</h3>
                                                 <p>Tu solicitud <strong>{row_s.get('TipoS')}</strong> para <strong>{row_s.get('NombreS')}</strong> ha sido completada.</p>
                                                 <pre style="background:#f4f4f4;padding:10px;">{mensaje_respuesta}</pre>
+                                                <hr style="border:1px solid #eee;">
+                                                <p style="font-size:13px;color:#555;">
+                                                    ⭐ <strong>¿Cómo calificarías la atención recibida?</strong><br>
+                                                    Responde este correo con 👍 si quedaste satisfecho/a, o con 👎 si no fue lo que esperabas.<br>
+                                                    <em>Si no recibes respuesta en 3 días, se registrará automáticamente como 👍 (Buena).</em>
+                                                </p>
                                                 <p>Saludos,<br>CRM UAG</p>
                                             </div>
                                             """
@@ -1004,7 +1085,20 @@ elif seccion == "🔐 Zona Admin":
                                     try:
                                         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
                                         headers = {"From": f"Equipo CRM <{st.secrets['email']['user']}>"}
-                                        html = f"""<div style="font-family: Arial;"><h3 style="color: green;">Resuelto</h3><p>Asunto: <strong>{row_i.get('Asunto')}</strong></p><p style="background:#e8f4fd;padding:10px;">{respuesta}</p></div>"""
+                                        html = f"""
+                                        <div style="font-family: Arial;">
+                                            <h3 style="color: green;">✅ Incidencia Resuelta</h3>
+                                            <p>Asunto: <strong>{row_i.get('Asunto')}</strong></p>
+                                            <p style="background:#e8f4fd;padding:10px;">{respuesta}</p>
+                                            <hr style="border:1px solid #eee;">
+                                            <p style="font-size:13px;color:#555;">
+                                                ⭐ <strong>¿Cómo calificarías la atención recibida?</strong><br>
+                                                Responde este correo con 👍 si quedaste satisfecho/a, o con 👎 si no fue lo que esperabas.<br>
+                                                <em>Si no recibes respuesta en 3 días, se registrará automáticamente como 👍 (Buena).</em>
+                                            </p>
+                                            <p>Saludos,<br>CRM UAG</p>
+                                        </div>
+                                        """
                                         yag.send(to=correo_usu, cc=lista_supervisores, subject=f"✅ Resuelto: {row_i.get('Asunto')}", contents=[html], headers=headers)
                                         st.toast("📧 Notificado.")
                                     except: pass
