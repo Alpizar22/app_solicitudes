@@ -206,8 +206,22 @@ def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunt
 # =========================
 # Datos y Funciones Aux
 # =========================
-sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
-sheet_solicitudes, sheet_incidencias, sheet_quejas, sheet_usuarios, sheet_accesos = sheets["Sheet1"], sheets["Incidencias"], sheets["Quejas"], sheets["Usuarios"], sheets["Accesos"]
+sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios", "Historial_IA"]}
+
+# Creamos las variables existentes
+sheet_solicitudes = sheets["Sheet1"]
+sheet_incidencias = sheets["Incidencias"]
+sheet_quejas = sheets["Quejas"]
+sheet_usuarios = sheets["Usuarios"]
+sheet_historial = sheets["Historial_IA"]
+
+# --- AGREGA ESTO NUEVO PARA CONECTAR EL CEREBRO ---
+try:
+    sheet_cerebro = book.worksheet("Cerebro")
+except:
+    # Si no la encuentra (por si se te olvidó crearla), evitamos que truene
+    sheet_cerebro = None
+    print("⚠️ Advertencia: No se encontró la hoja 'Cerebro' en Google Sheets.")
 
 def get_records_simple(_ws) -> pd.DataFrame:
     try:
@@ -240,7 +254,9 @@ def enviar_correo(asunto, cuerpo_detalle, para):
         cc_list = [
             "luis.alpizar@edu.uag.mx", 
             "carlos.sotelo@edu.uag.mx", 
-            "esther.diaz@edu.uag.mx"
+            "esther.diaz@edu.uag.mx",
+            "jesus.zaragoza@edu.uag.mx",
+            "lourdes.romo@edu.uag.mx"
         ]
 
         to = [para]
@@ -280,14 +296,113 @@ def do_login(m): st.session_state.update({"usuario_logueado": _email_norm(m), "s
 def do_logout(): st.session_state.clear(); st.rerun()
 if "usuario_logueado" not in st.session_state: st.session_state.usuario_logueado = None
 
-# =========================
-# NAVEGACIÓN
-# =========================
-nav = ["🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "📝 Mejoras y sugerencias", "🔐 Zona Admin"]
+
+# ---------------------------------------------------------
+# BLOQUE DE NAVEGACIÓN (Este debe ir ANTES de cualquier 'if seccion')
+# ---------------------------------------------------------
+
+# OCULTO - pendiente FAQ: para reactivar, descomenta la línea de abajo y comenta la siguiente
+# nav = ["🏠 Asistente IA 24/7", "🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "🔑 Accesos y Buzón", "🔐 Zona Admin"]
+nav = ["🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "🔑 Accesos y Buzón", "🔐 Zona Admin"]
+
 if 'nav_index' not in st.session_state: st.session_state.nav_index = 0
 idx = st.sidebar.radio("Menú", range(len(nav)), format_func=lambda i: nav[i], index=st.session_state.nav_index)
 st.session_state.nav_index = idx
+
+# ¡AQUÍ NACE LA VARIABLE!
 seccion = nav[idx]
+
+# =========================
+# 1. FUNCIÓN DE CARGA DE CONOCIMIENTO (AGREGAR AL INICIO CON TUS OTRAS FUNCIONES)
+# =========================
+
+@st.cache_data(show_spinner=False)
+def cargar_conocimiento():
+    if sheet_cerebro is None: return ""
+    
+    try:
+        # Leemos la celda A1 donde vive todo el texto
+        # Usamos value_render_option='UNFORMATTED_VALUE' para evitar que Google le de formato raro
+        val = with_backoff(sheet_cerebro.acell, 'A1').value
+        
+        if not val: return "No hay conocimiento base aún."
+        return val
+    except Exception as e:
+        print(f"Error leyendo cerebro: {e}")
+        return ""
+
+# ===================== SECCIÓN: ASISTENTE IA (PORTERO EXPERTO) =====================
+
+
+if seccion == "🏠 Asistente IA 24/7":
+    st.markdown("## 🤖 Sistema de Canalización MKT")
+    st.info("👋 **Hola.** Soy tu respaldo técnico. Conozco los procesos exactos de Altas, Bajas e Incidencias.")
+
+    # Historial visual (Chat en pantalla)
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("Escribe tu duda (ej: 'Tengo un desfase', 'Quiero una baja')..."):
+        # 1. Mostrar mensaje del usuario
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # 2. Generar respuesta IA
+        with st.chat_message("assistant"):
+            with st.spinner("Consultando manuales..."):
+                try:
+                    client_ai = get_openai_client()
+                    if client_ai:
+                        base_conocimiento = cargar_conocimiento()
+                        
+                        contexto = f"""
+                        ERES EL SOPORTE TÉCNICO EXPERTO DEL CRM UAG.
+                        TU FUENTE DE VERDAD: {base_conocimiento}
+                        TU MISIÓN: Responde basándote en la fuente.
+                        REGLAS:
+                        1. Si es INCIDENCIA -> Ve a '🛠️ Incidencias CRM'.
+                        2. Si es SOLICITUD -> Ve a '🌟 Solicitudes CRM'.
+                        3. Sé breve y profesional.
+                        4. Prohibido ser Grosero
+                        """
+                        
+                        resp = client_ai.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": contexto},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.0
+                        )
+                        reply = resp.choices[0].message.content
+                        
+                        # --- 🔴 AQUÍ GUARDAMOS EN EXCEL (AUDITORÍA) ---
+                        # Obtenemos usuario (si está logueado) o ponemos "Anónimo"
+                        usuario_actual = st.session_state.usuario_logueado if st.session_state.usuario_logueado else "Anónimo/Invitado"
+                        
+                        # Fila: [Fecha, Usuario, Pregunta, Respuesta]
+                        log_row = [now_mx_str(), usuario_actual, prompt, reply]
+                        
+                        # Guardamos en segundo plano (para no alentar el chat)
+                        try:
+                            with_backoff(sheet_historial.append_row, log_row)
+                        except Exception as e:
+                            print(f"No se pudo guardar historial: {e}")
+                        # ---------------------------------------------
+
+                    else:
+                        reply = "La IA no está conectada."
+                except Exception as e:
+                    reply = f"Error: {e}"
+                
+                st.markdown(reply)
+                st.session_state.messages.append({"role": "assistant", "content": reply})
+
 
 # --- 1. ESTADO (CORREGIDO: AHORA MUESTRA SOLICITUDES E INCIDENCIAS) ---
 if seccion == "🔍 Ver el estado de mis solicitudes":
@@ -470,17 +585,38 @@ elif seccion == "🌟 Solicitudes CRM":
 
             show_numeros = ss.sol_rol in numeros_por_rol
             if show_numeros:
-                st.markdown("### 5) Extensiones y salida (si aplica)")
+                st.markdown("### 5) Extensiones y Salida (*)")
                 nums_cfg = numeros_por_rol.get(ss.sol_rol, {})
-                nums_in_list = ["No aplica"] + nums_cfg.get("Numero_IN", [])
-                nums_out_list = ["No aplica"] + nums_cfg.get("Numero_Saliente", [])
-                c3, c4 = st.columns(2)
-                with c3: num_in = st.selectbox("Número IN", nums_in_list, key="sol_num_in_form")
-                with c4: num_out = st.selectbox("Número Saliente", nums_out_list, key="sol_num_out_form")
+                lista_in_raw  = nums_cfg.get("Numero_IN", [])
+                lista_out_raw = nums_cfg.get("Numero_Saliente", [])
+
+                # Auto-selección si solo hay 1 número disponible
+                if len(lista_in_raw) == 1:
+                    num_in = lista_in_raw[0]
+                    st.info(f"📞 Número IN asignado automáticamente: **{num_in}**")
+                elif len(lista_in_raw) > 1:
+                    nums_in_list = ["Selecciona número IN (*)"] + lista_in_raw
+                    c3, _ = st.columns(2)
+                    with c3: num_in = st.selectbox("Número IN (*)", nums_in_list, key="sol_num_in_form")
+                else:
+                    num_in = "No aplica"
+
+                if len(lista_out_raw) == 1:
+                    num_out = lista_out_raw[0]
+                    st.info(f"📤 Número Saliente asignado automáticamente: **{num_out}**")
+                elif len(lista_out_raw) > 1:
+                    nums_out_list = ["Selecciona número Saliente (*)"] + lista_out_raw
+                    _, c4 = st.columns(2)
+                    with c4: num_out = st.selectbox("Número Saliente (*)", nums_out_list, key="sol_num_out_form")
+                else:
+                    num_out = "No aplica"
             else:
                 num_in, num_out = "No aplica", "No aplica"
 
-            st.markdown("### 6) Quién Solicita")
+            st.markdown("### 6) Horario Especial")
+            trabaja_sabado = st.checkbox("📅 ¿Trabajará en sábado?", key="sol_sabado_form")
+
+            st.markdown("### 7) Quién Solicita")
             correo_solicitante_form = st.text_input("Correo de quien lo solicita (*)", key="sol_correo_sol_input_form")
             
             st.caption("(*) Campos obligatorios")
@@ -496,24 +632,47 @@ elif seccion == "🌟 Solicitudes CRM":
                     st.warning("⚠️ Faltan campos de Área/Perfil/Rol."); st.stop()
                 if requiere_horario and horario == "Selecciona...":
                     st.warning("⚠️ Selecciona un horario válido."); st.stop()
+                # Validar números obligatorios cuando hay más de una opción
+                if show_numeros:
+                    nums_cfg_check = numeros_por_rol.get(rol, {})
+                    if len(nums_cfg_check.get("Numero_IN", [])) > 1 and num_in.startswith("Selecciona"):
+                        st.warning("⚠️ Debes seleccionar un Número IN para este rol."); st.stop()
+                    if len(nums_cfg_check.get("Numero_Saliente", [])) > 1 and num_out.startswith("Selecciona"):
+                        st.warning("⚠️ Debes seleccionar un Número Saliente para este rol."); st.stop()
 
                 try:
                     num_in_val  = "" if (not show_numeros or num_in == "No aplica") else str(num_in)
                     num_out_val = "" if (not show_numeros or num_out == "No aplica") else str(num_out)
                     horario_val = "" if (not requiere_horario or horario == "Selecciona...") else horario
                     turno_val   = "" if (not requiere_horario) else turno
+                    check_sabado_val = "TRUE" if trabaja_sabado else "FALSE"  # columna S = CheckSS
 
                     fila_sol = [
-                        now_mx_str(), tipo, nombre.strip(), correo.strip(),
-                        area, perfil, rol,
-                        num_in_val, num_out_val, horario_val, turno_val,
-                        _email_norm(correo_solicitante_form), "Pendiente",
-                        "", "", str(uuid4()), "", ""
+                        now_mx_str(), tipo, nombre.strip(), correo.strip(),   # A B C D
+                        area, perfil, rol,                                      # E F G
+                        num_in_val, num_out_val, horario_val, turno_val,       # H I J K
+                        _email_norm(correo_solicitante_form), "Pendiente",     # L M
+                        "", "", str(uuid4()), "", "",                           # N O P Q R
+                        check_sabado_val                                        # S = CheckSS
                     ]
                     header_s = sheet_solicitudes.row_values(1); fila_sol = fila_sol[:len(header_s)]
                     with_backoff(sheet_solicitudes.append_row, fila_sol, value_input_option='USER_ENTERED')
                     
-                    resumen_email = f"Tipo: {tipo}<br>Nombre: {nombre}<br>Correo usuario: {correo}<br>Solicitante: {correo_solicitante_form}<br>Área: {area}<br>Perfil: {perfil}<br>Rol: {rol}"
+                    sabado_str  = "Sí" if trabaja_sabado else "No"
+                    in_str      = num_in_val  if num_in_val  else "No aplica"
+                    out_str     = num_out_val if num_out_val else "No aplica"
+                    resumen_email = (
+                        f"Tipo: {tipo}<br>"
+                        f"Nombre: {nombre}<br>"
+                        f"Correo usuario: {correo}<br>"
+                        f"Solicitante: {correo_solicitante_form}<br>"
+                        f"Área: {area}<br>"
+                        f"Perfil: {perfil}<br>"
+                        f"Rol: {rol}<br>"
+                        f"Número IN: {in_str}<br>"
+                        f"Número Saliente: {out_str}<br>"
+                        f"Trabaja sábado: {sabado_str}"
+                    )
                     enviar_correo(f"Solicitud CRM: {tipo} - {nombre}", resumen_email, correo_solicitante_form)
                     
                     # 🟢 AQUÍ ESTÁ EL CAMBIO CLAVE: Activamos bandera y recargamos
@@ -581,90 +740,130 @@ elif seccion == "🛠️ Incidencias CRM":
                     enviar_correo(f"Incidencia Recibida: {asunto}", descripcion, mail)
                     st.success("✅ Incidencia registrada."); st.balloons(); time.sleep(2); st.rerun()
 
-# ===================== SECCIÓN 4: MEJORAS (LADO USUARIO + RESPUESTA AUTO IA) =====================
-elif seccion == "📝 Mejoras y sugerencias":
-    st.markdown("## 📝 Mejoras y Sugerencias")
-    st.info("Tu opinión es vital para mejorar el servicio CRM.")
-    
-    with st.form("fq"):
-        col_m, col_t = st.columns([2, 1])
-        correo_user = col_m.text_input("Tu Correo (Opcional, para darte seguimiento)")
-        tipo = col_t.selectbox("Tipo", ["Mejora", "Queja", "Felicitación"])
-        
-        asunto = st.text_input("Asunto")
-        detalle = st.text_area("Descripción Detallada", height=150)
-        
-        if st.form_submit_button("Enviar Comentario"):
-            if not detalle or not asunto:
-                st.warning("⚠️ El asunto y el detalle son obligatorios.")
-            else:
-                # 1. Generar ID único
-                id_q = str(uuid4())
-                
-                # 2. Guardar en Sheet (Estructura EXACTA de 11 Columnas)
-                # FechaQ, CorreoQ, TipoQ, AsuntoQ, DescripciónQ, CategoríaQ, EstadoQ, CalificacionQ, CategoriaQ, IDQ, RespuestaQ
-                row_new = [
-                    now_mx_str(),           # FechaQ
-                    correo_user,            # CorreoQ
-                    tipo,                   # TipoQ
-                    asunto,                 # AsuntoQ
-                    detalle,                # DescripciónQ
-                    "",                     # CategoríaQ 
-                    "Pendiente",            # EstadoQ
-                    "",                     # CalificacionQ
-                    "",                     # CategoriaQ (Duplicado en tu sheet)
-                    id_q,                   # IDQ
-                    ""                      # RespuestaQ (Nueva columna 11)
-                ]
-                
-                with_backoff(sheet_quejas.append_row, row_new)
-                
-                # 3. IA: Generar Respuesta Automática Empática (La "Portera")
-                msg_ia = ""
-                if correo_user and "@" in correo_user:
-                    try:
-                        client_ai = get_openai_client()
-                        if client_ai:
-                            # Prompt para que la IA actúe como Customer Service
-                            prompt_system = f"""
-                            Actúa como el sistema automático de Atención al Cliente del CRM de la UAG.
-                            El usuario envió una: {tipo}.
-                            Asunto: {asunto}.
-                            Detalle: {detalle}.
-                            
-                            Redacta el cuerpo de un correo de respuesta breve, muy amable y profesional.
-                            - Si es Queja: Pide disculpas por el inconveniente, di que ya se notificó a la jefatura y que trataremos de mejorar.
-                            - Si es Mejora/Felicitación: Agradece la propuesta y di que se tomará en cuenta para futuras versiones.
-                            - Firma como: "Tu Asistente Virtual CRM".
-                            """
-                            resp_ai = client_ai.chat.completions.create(
-                                model="gpt-4o-mini", 
-                                messages=[{"role":"user", "content": prompt_system}]
-                            ).choices[0].message.content
-                            msg_ia = resp_ai
-                        else:
-                            # Fallback si falla la IA
-                            msg_ia = f"Hemos recibido tu {tipo}. El equipo ya ha sido notificado y daremos seguimiento."
-                        
-                        # Enviar el correo automático
-                        yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
-                        html_msg = f"""
-                        <div style="font-family: Arial, sans-serif; color: #333;">
-                            <h3 style="color: #004B93;">Acuse de Recibo: {tipo}</h3>
-                            <p>Hola,</p>
-                            <p>{msg_ia.replace(chr(10), '<br>')}</p>
-                            <hr>
-                            <p style="font-size: 12px; color: gray;">Detalle registrado: {asunto}</p>
-                        </div>
-                        """
-                        # Aquí NO copiamos a los jefes para no saturarlos, solo al usuario.
-                        # Los jefes lo ven en el panel.
-                        yag.send(to=correo_user, subject=f"Recibido: {asunto}", contents=[html_msg])
-                        
-                    except Exception as e:
-                        print(f"Error enviando correo IA: {e}")
+# ===================== SECCIÓN FUSIONADA: ACCESOS Y BUZÓN =====================
+elif seccion == "🔑 Accesos y Buzón":
+    st.markdown("## 🔑 Gestión de Accesos y Buzón de Ayuda")
 
-                st.success("✅ Mensaje enviado. Hemos notificado al equipo."); st.balloons(); time.sleep(2); st.rerun()
+    # Subtabs: uno para accesos/buzón general, otro para solicitar nuevo rol
+    subtab_acc, subtab_rol = st.tabs(["📋 Accesos y Buzón", "🆕 Solicitar Nuevo Rol / Perfil"])
+
+    # ---- SUBTAB 1: ACCESOS Y BUZÓN (flujo original) ----
+    with subtab_acc:
+        st.info("Aquí puedes solicitar permisos especiales, desbloqueo de cursos, o dejarnos tus quejas y sugerencias sobre el CRM.")
+
+        tipos_solicitud_unificada = [
+            "Selecciona...",
+            "--- ACCESOS Y PERMISOS ---",
+            "Acceso a Zoho Analytics",
+            "Ajuste de Permisos (Faltan)",
+            "Quitar Permisos (Seguridad)",
+            "Capacitación: Curso Reprobado (Reactivar)",
+            "Capacitación: Faltan Cursos Asignados",
+            "--- BUZÓN DE OPINIÓN ---",
+            "Queja del Servicio",
+            "Sugerencia de Mejora",
+            "Felicitación",
+            "Otro tema"
+        ]
+
+        with st.form("form_accesos_buzon", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            correo_solicitante = c1.text_input("Tu Correo Institucional (*)")
+            tipo_solicitud = c2.selectbox("¿Qué necesitas? (*)", tipos_solicitud_unificada)
+
+            if "Curso" in tipo_solicitud:
+                st.caption("ℹ️ Indica el nombre del curso y el usuario afectado.")
+            elif "Analytics" in tipo_solicitud:
+                st.caption("ℹ️ Indica para qué espacio de trabajo requieres el acceso.")
+            elif "Queja" in tipo_solicitud:
+                st.caption("ℹ️ Lamentamos el inconveniente. Por favor detalla qué sucedió para solucionarlo.")
+
+            asunto_acc = st.text_input("Asunto Breve (*)")
+            justificacion = st.text_area("Detalle / Justificación (*)", height=100, placeholder="Explica tu solicitud, queja o sugerencia aquí...")
+            enviar_acc = st.form_submit_button("Enviar Solicitud")
+
+        if enviar_acc:
+            if not correo_solicitante or "Selecciona" in tipo_solicitud or "---" in tipo_solicitud or not asunto_acc or not justificacion:
+                st.warning("⚠️ Por favor completa todos los campos y selecciona una opción válida.")
+            else:
+                try:
+                    id_unico = str(uuid4())
+                    row_unificado = [
+                        now_mx_str(), _email_norm(correo_solicitante), tipo_solicitud,
+                        asunto_acc, justificacion, "", "Pendiente", "", "", id_unico, ""
+                    ]
+                    with_backoff(sheet_quejas.append_row, row_unificado)
+                    msg_exito = "✅ Solicitud enviada."
+                    if "Queja" in tipo_solicitud: msg_exito = "✅ Reporte recibido."
+                    elif "Sugerencia" in tipo_solicitud: msg_exito = "✅ Sugerencia recibida."
+                    st.success(msg_exito)
+                    resumen = f"Tipo: {tipo_solicitud}<br>Asunto: {asunto_acc}<br>Detalle: {justificacion}"
+                    enviar_correo(f"CRM Solicitud: {tipo_solicitud}", resumen, correo_solicitante)
+                    st.balloons(); time.sleep(2); st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al guardar: {e}")
+
+    # ---- SUBTAB 2: SOLICITAR NUEVO ROL / PERFIL ----
+    with subtab_rol:
+        st.warning("⚠️ Usa este formulario **solo si el rol o área que necesitas NO existe** en el catálogo de Solicitudes CRM.")
+        st.markdown("El equipo evaluará la solicitud y, si procede, lo agregará al catálogo antes de crear el acceso en Zoho.")
+
+        with st.form("form_nuevo_rol", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            nr_correo     = c1.text_input("Tu Correo Institucional (*)")
+            nr_correo_usr = c2.text_input("Correo del usuario que recibirá el acceso (*)")
+
+            st.markdown("#### Datos del nuevo rol / área")
+            c3, c4 = st.columns(2)
+            nr_area   = c3.text_input("Área o Departamento nuevo (*)", placeholder="Ej: Posgrado Internacional")
+            nr_perfil = c4.text_input("Perfil nuevo (*)", placeholder="Ej: Coordinador de Admisiones")
+            nr_rol    = st.text_input("Rol o Nombre del puesto (*)", placeholder="Ej: Coordinador Senior")
+
+            nr_justificacion = st.text_area(
+                "Justificación (*)",
+                height=120,
+                placeholder="Explica por qué se necesita este rol, qué funciones tendrá en Zoho y por qué no existe en el catálogo actual."
+            )
+
+            st.caption("(*) Campos obligatorios")
+            enviar_rol = st.form_submit_button("📨 Enviar Solicitud de Nuevo Rol", use_container_width=True)
+
+        if enviar_rol:
+            if not nr_correo or not nr_correo_usr or not nr_area or not nr_perfil or not nr_rol or not nr_justificacion:
+                st.warning("⚠️ Por favor completa todos los campos obligatorios.")
+            else:
+                try:
+                    id_nr = str(uuid4())
+                    detalle_nr = (
+                        f"ÁREA: {nr_area} | PERFIL: {nr_perfil} | ROL: {nr_rol} | "
+                        f"USUARIO DESTINO: {nr_correo_usr} | JUSTIFICACIÓN: {nr_justificacion}"
+                    )
+                    row_nuevo_rol = [
+                        now_mx_str(),                       # 1. Fecha
+                        _email_norm(nr_correo),             # 2. Correo solicitante
+                        "Nuevo Rol / Perfil (Creación)",    # 3. Tipo
+                        f"Nuevo Rol: {nr_rol} - {nr_area}", # 4. Asunto
+                        detalle_nr,                         # 5. Detalle
+                        "Nuevo Rol",                        # 6. Categoría
+                        "Pendiente",                        # 7. Estado
+                        "",                                 # 8. Calificación
+                        "",                                 # 9. Categoría 2
+                        id_nr,                              # 10. ID
+                        ""                                  # 11. Respuesta Admin
+                    ]
+                    with_backoff(sheet_quejas.append_row, row_nuevo_rol)
+
+                    resumen_nr = (
+                        f"Área: {nr_area}<br>Perfil: {nr_perfil}<br>Rol: {nr_rol}<br>"
+                        f"Usuario destino: {nr_correo_usr}<br>Justificación: {nr_justificacion}"
+                    )
+                    enviar_correo(f"Solicitud Nuevo Rol: {nr_rol} ({nr_area})", resumen_nr, nr_correo)
+
+                    st.success("✅ Solicitud de nuevo rol enviada. El equipo la revisará y te notificará.")
+                    st.balloons(); time.sleep(2); st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al guardar: {e}")
+
 
 
 # ===================== SECCIÓN 5: ADMIN (COMPLETA Y CORREGIDA) =====================
@@ -684,7 +883,9 @@ elif seccion == "🔐 Zona Admin":
     lista_supervisores = [
         "luis.alpizar@edu.uag.mx", 
         "carlos.sotelo@edu.uag.mx", 
-        "esther.diaz@edu.uag.mx"
+        "esther.diaz@edu.uag.mx",
+        "jesus.zaragoza@edu.uag.mx",
+        "lourdes.romo@edu.uag.mx"
     ]
 
     pwd = st.text_input("Contraseña Admin", type="password")
@@ -693,7 +894,68 @@ elif seccion == "🔐 Zona Admin":
     if pwd == ADMIN_PASS or st.session_state.get("is_admin", False):
         st.session_state.is_admin = True
         
-        tab1, tab2, tab3 = st.tabs(["Solicitudes", "Incidencias", "Quejas"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Solicitudes", "Incidencias", "Quejas", "🧠 Cerebro IA"])
+
+# ================= TAB 4: ENTRENAMIENTO IA (PERSISTENTE) =================
+    with tab4:
+        st.subheader("🧠 Gestión del Conocimiento (Cerebro IA)")
+        st.info("Este texto se guarda en la celda A1 de la hoja 'Cerebro' en Google Sheets. Es la memoria de tu Asistente.")
+
+        # Leemos lo actual
+        try:
+            contenido_actual = sheet_cerebro.acell('A1').value or ""
+        except:
+            contenido_actual = ""
+
+        col_edit, col_preview = st.columns([2, 1])
+        
+        with col_edit:
+            st.markdown("### ✏️ Editor Maestro")
+            nuevo_contenido = st.text_area("Base de Conocimiento", value=contenido_actual, height=500, key="txt_cerebro_sheet")
+            
+            if st.button("💾 Guardar en la Nube"):
+                with st.spinner("Guardando..."):
+                    try:
+                        with_backoff(sheet_cerebro.update_acell, 'A1', nuevo_contenido)
+                        cargar_conocimiento.clear() # Limpiamos caché
+                        st.success("✅ Guardado exitoso.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+
+        with col_preview:
+            st.markdown("### 📥 Ingestar PDFs")
+            pdfs = st.file_uploader("Subir PDFs", type="pdf", accept_multiple_files=True)
+            
+            if st.button("⚙️ Procesar y Anexar"):
+                if not pdfs:
+                    st.warning("Sin archivos.")
+                else:
+                    texto_pdf_total = ""
+                    bar = st.progress(0)
+                    for idx, pdf_file in enumerate(pdfs):
+                        try:
+                            reader = PdfReader(pdf_file)
+                            texto_local = ""
+                            for page in reader.pages:
+                                texto_local += page.extract_text() + "\n"
+                            texto_pdf_total += f"\n\n--- FUENTE: {pdf_file.name} ---\n{texto_local}"
+                            bar.progress((idx + 1) / len(pdfs))
+                        except: pass
+                    
+                    contenido_final = nuevo_contenido + texto_pdf_total
+                    
+                    # Validar límite (aprox 50k caracteres por celda)
+                    if len(contenido_final) > 49000:
+                        st.warning(f"⚠️ ¡Ojo! El texto ({len(contenido_final)}) está cerca del límite de la celda (50k).")
+                    
+                    with_backoff(sheet_cerebro.update_acell, 'A1', contenido_final)
+                    cargar_conocimiento.clear()
+                    st.success("✅ PDFs procesados.")
+                    time.sleep(2)
+                    st.rerun()
+
         
         # ================= TAB 1: SOLICITUDES (CORREGIDO IDS y EMAILS) =================
         with tab1:
@@ -840,60 +1102,66 @@ elif seccion == "🔐 Zona Admin":
                                 with_backoff(sheet_incidencias.delete_rows, cell.row)
                                 st.warning("Eliminado"); time.sleep(1); st.rerun()
 
-        # ================= TAB 3: QUEJAS =================
-        with tab3:
-            st.subheader("Gestión de Quejas")
-            dfq = get_records_simple(sheet_quejas)
+  # ================= TAB 3: GESTIÓN UNIFICADA (En hoja Quejas) =================
+    with tab3:
+        st.subheader("Gestión de Accesos, Quejas y Sugerencias")
+        
+        # Leemos de QUEJAS
+        dfq = get_records_simple(sheet_quejas)
+        
+        if dfq.empty:
+            st.info("No hay registros pendientes.")
+        else:
             st.dataframe(dfq, use_container_width=True)
             
-            if not dfq.empty and "IDQ" in dfq.columns:
-                ids_q = dfq[dfq["IDQ"] != ""]["IDQ"].unique().tolist()
+            # Buscamos la columna ID (En tu hoja Quejas suele ser IDQ o ID)
+            # Ajusta "IDQ" si así se llama en tu Excel, o "ID" si es genérico.
+            col_id_target = "IDQ" if "IDQ" in dfq.columns else "ID"
+            
+            if col_id_target in dfq.columns:
+                ids_q = dfq[dfq[col_id_target] != ""][col_id_target].unique().tolist()
                 
                 if ids_q:
                     st.divider()
-                    idx_def_q = len(ids_q)-1 if len(ids_q) > 0 else 0
-                    sel_idq = st.selectbox("ID Queja", ids_q, index=idx_def_q)
+                    # Selector inteligente
+                    sel_id_q = st.selectbox("Seleccionar Registro", ids_q, format_func=lambda x: f"{x} - {dfq[dfq[col_id_target]==x].iloc[0].get('TipoQ', 'Registro')}")
                     
-                    row_q = dfq[dfq["IDQ"] == sel_idq].iloc[0]
+                    row_q = dfq[dfq[col_id_target] == sel_id_q].iloc[0]
                     
-                    st.info(f"Tipo: **{row_q.get('TipoQ')}** | Asunto: {row_q.get('AsuntoQ')} | De: {row_q.get('CorreoQ')}")
-                    st.write(f"**Descripción:** {row_q.get('DescripciónQ')}")
+                    # Nombres de columnas basados en tu hoja Quejas (ajusta si difieren)
+                    tipo_val = row_q.get('TipoQ') or row_q.get('Tipo')
+                    correo_val = row_q.get('CorreoQ') or row_q.get('Correo')
+                    desc_val = row_q.get('DescripciónQ') or row_q.get('Justificacion') or row_q.get('Detalle')
+                    estado_val = row_q.get('EstadoQ') or row_q.get('Estado') or "Pendiente"
+                    resp_val = row_q.get('RespuestaQ') or row_q.get('RespuestaAdmin') or ""
                     
-                    c_st_q, c_sp = st.columns([1, 2])
-                    st_act_q = row_q.get("EstadoQ", "Pendiente")
-                    opts_q = ["Pendiente", "Revisado", "Atendido"]
-                    idx_q = opts_q.index(st_act_q) if st_act_q in opts_q else 0
+                    st.markdown(f"**Tipo:** {tipo_val} | **Solicitante:** {correo_val}")
+                    st.warning(f"**Detalle:** {desc_val}")
                     
-                    nuevo_estado_q = c_st_q.selectbox("Estado", opts_q, index=idx_q, key="st_queja_main")
+                    c_st_q, c_dummy = st.columns(2)
+                    opts_q = ["Pendiente", "Aprobado", "Rechazado", "En Revisión", "Atendido"]
+                    idx_q = opts_q.index(estado_val) if estado_val in opts_q else 0
                     
-                    val_resp = row_q.get("RespuestaQ", "") if "RespuestaQ" in dfq.columns else ""
-                    resp_q = st.text_area("Tu Respuesta (Manual)", value=val_resp, key="resp_queja_main")
+                    nuevo_estado = c_st_q.selectbox("Estado", opts_q, index=idx_q, key="st_fusion_q")
+                    nueva_resp = st.text_area("Respuesta Admin", value=resp_val, key="rsp_fusion_q")
                     
-                    if st.button("💾 Guardar y Cerrar Queja"):
-                        cell = with_backoff(sheet_quejas.find, sel_idq)
+                    if st.button("💾 Guardar Cambios"):
+                        cell = with_backoff(sheet_quejas.find, sel_id_q)
                         if cell:
-                            # Columnas fijas: 7 (Estado) y 11 (Respuesta)
-                            sheet_quejas.update_cell(cell.row, 7, nuevo_estado_q)
-                            sheet_quejas.update_cell(cell.row, 11, resp_q)
+                            # En hoja Quejas: Columna 7 es Estado, Columna 11 es Respuesta
+                            sheet_quejas.update_cell(cell.row, 7, nuevo_estado)
+                            sheet_quejas.update_cell(cell.row, 11, nueva_resp)
                             
-                            correo_q = row_q.get('CorreoQ')
-                            if nuevo_estado_q in ["Revisado", "Atendido"] and resp_q and correo_q and "@" in correo_q:
-                                 try:
+                            # Notificar
+                            if nuevo_estado in ["Aprobado", "Rechazado", "Atendido"]:
+                                asunto_mail = f"Actualización: {tipo_val}"
+                                body_mail = f"<p>Estado actualizado a: <strong>{nuevo_estado}</strong>.</p><p>Respuesta: {nueva_resp}</p>"
+                                try:
                                     yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
-                                    headers = {"From": f"Equipo CRM <{st.secrets['email']['user']}>"}
-                                    html_q = f"""
-                                    <div style="font-family: Arial;">
-                                        <h3 style="color: #004B93;">Seguimiento</h3>
-                                        <p>Sobre tu {row_q.get('TipoQ')}: <em>{row_q.get('AsuntoQ')}</em>.</p>
-                                        <p><strong>Respuesta:</strong><br>{resp_q}</p>
-                                        <p>Atte: Equipo CRM</p>
-                                    </div>
-                                    """
-                                    yag.send(to=correo_q, cc=lista_supervisores, subject=f"Seguimiento: {row_q.get('TipoQ')}", contents=[html_q], headers=headers)
-                                    st.toast("📧 Respuesta enviada.")
-                                 except Exception as e: st.error(f"Error correo: {e}")
+                                    yag.send(to=correo_val, subject=asunto_mail, contents=[body_mail])
+                                    st.toast("📧 Notificación enviada.")
+                                except: pass
                             
-                            st.success("Guardado"); time.sleep(1); st.rerun()
-
-st.sidebar.divider()
-if st.sidebar.button("Recargar"): st.rerun()
+                            st.success("Registro actualizado.")
+                            time.sleep(1)
+                            st.rerun()
