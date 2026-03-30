@@ -206,22 +206,14 @@ def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunt
 # =========================
 # Datos y Funciones Aux
 # =========================
-sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios", "Historial_IA"]}
+sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
 
 # Creamos las variables existentes
 sheet_solicitudes = sheets["Sheet1"]
 sheet_incidencias = sheets["Incidencias"]
 sheet_quejas = sheets["Quejas"]
 sheet_usuarios = sheets["Usuarios"]
-sheet_historial = sheets["Historial_IA"]
 
-# --- AGREGA ESTO NUEVO PARA CONECTAR EL CEREBRO ---
-try:
-    sheet_cerebro = book.worksheet("Cerebro")
-except:
-    # Si no la encuentra (por si se te olvidó crearla), evitamos que truene
-    sheet_cerebro = None
-    print("⚠️ Advertencia: No se encontró la hoja 'Cerebro' en Google Sheets.")
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_records_simple(_ws) -> pd.DataFrame:
@@ -302,7 +294,7 @@ if "usuario_logueado" not in st.session_state: st.session_state.usuario_logueado
 
 # OCULTO - pendiente FAQ: para reactivar, descomenta la línea de abajo y comenta la siguiente
 # nav = ["🏠 Asistente IA 24/7", "🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "🔑 Accesos y Buzón", "🔐 Zona Admin"]
-nav = ["🔍 Ver el estado de mis solicitudes", "🌟 Solicitudes CRM", "🛠️ Incidencias CRM", "🔑 Accesos y Buzón", "🔐 Zona Admin"]
+nav = ["🛠️ Incidencias CRM", "🌟 Solicitudes CRM", "🔑 Accesos y Buzón", "🔍 Ver el estado de mis solicitudes", "🔐 Zona Admin"]
 
 if 'nav_index' not in st.session_state: st.session_state.nav_index = 0
 idx = st.sidebar.radio("Menú", range(len(nav)), format_func=lambda i: nav[i], index=st.session_state.nav_index)
@@ -315,20 +307,6 @@ seccion = nav[idx]
 # 1. FUNCIÓN DE CARGA DE CONOCIMIENTO (AGREGAR AL INICIO CON TUS OTRAS FUNCIONES)
 # =========================
 
-@st.cache_data(show_spinner=False)
-def cargar_conocimiento():
-    if sheet_cerebro is None: return ""
-    
-    try:
-        # Leemos la celda A1 donde vive todo el texto
-        # Usamos value_render_option='UNFORMATTED_VALUE' para evitar que Google le de formato raro
-        val = with_backoff(sheet_cerebro.acell, 'A1').value
-        
-        if not val: return "No hay conocimiento base aún."
-        return val
-    except Exception as e:
-        print(f"Error leyendo cerebro: {e}")
-        return ""
 
 # ===================== SECCIÓN: ASISTENTE IA (PORTERO EXPERTO) =====================
 
@@ -357,7 +335,7 @@ if seccion == "🏠 Asistente IA 24/7":
                 try:
                     client_ai = get_openai_client()
                     if client_ai:
-                        base_conocimiento = cargar_conocimiento()
+                        base_conocimiento = ""  # cargar_conocimiento() — requiere hoja Cerebro
                         
                         contexto = f"""
                         ERES EL SOPORTE TÉCNICO EXPERTO DEL CRM UAG.
@@ -389,7 +367,7 @@ if seccion == "🏠 Asistente IA 24/7":
                         
                         # Guardamos en segundo plano (para no alentar el chat)
                         try:
-                            with_backoff(sheet_historial.append_row, log_row)
+                            pass  # with_backoff(sheet_historial.append_row, log_row) — requiere hoja Historial_IA
                         except Exception as e:
                             print(f"No se pudo guardar historial: {e}")
                         # ---------------------------------------------
@@ -891,70 +869,9 @@ elif seccion == "🔐 Zona Admin":
     if pwd == ADMIN_PASS or st.session_state.get("is_admin", False):
         st.session_state.is_admin = True
         
-        tab1, tab2, tab3, tab4 = st.tabs(["Solicitudes", "Incidencias", "Quejas", "🧠 Cerebro IA"])
+        tab1, tab2, tab3 = st.tabs(["Solicitudes", "Incidencias", "Quejas"])
 
-        # ================= TAB 4: ENTRENAMIENTO IA (PERSISTENTE) =================
-        with tab4:
-            st.subheader("🧠 Gestión del Conocimiento (Cerebro IA)")
-            st.info("Este texto se guarda en la celda A1 de la hoja 'Cerebro' en Google Sheets. Es la memoria de tu Asistente.")
-
-            # Leemos lo actual
-            try:
-                contenido_actual = sheet_cerebro.acell('A1').value or ""
-            except:
-                contenido_actual = ""
-
-            col_edit, col_preview = st.columns([2, 1])
-        
-            with col_edit:
-                st.markdown("### ✏️ Editor Maestro")
-                nuevo_contenido = st.text_area("Base de Conocimiento", value=contenido_actual, height=500, key="txt_cerebro_sheet")
-            
-                if st.button("💾 Guardar en la Nube"):
-                    with st.spinner("Guardando..."):
-                        try:
-                            with_backoff(sheet_cerebro.update_acell, 'A1', nuevo_contenido)
-                            cargar_conocimiento.clear() # Limpiamos caché
-                            st.success("✅ Guardado exitoso.")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error: {e}")
-
-            with col_preview:
-                st.markdown("### 📥 Ingestar PDFs")
-                pdfs = st.file_uploader("Subir PDFs", type="pdf", accept_multiple_files=True)
-            
-                if st.button("⚙️ Procesar y Anexar"):
-                    if not pdfs:
-                        st.warning("Sin archivos.")
-                    else:
-                        texto_pdf_total = ""
-                        bar = st.progress(0)
-                        for idx, pdf_file in enumerate(pdfs):
-                            try:
-                                reader = PdfReader(pdf_file)
-                                texto_local = ""
-                                for page in reader.pages:
-                                    texto_local += page.extract_text() + "\n"
-                                texto_pdf_total += f"\n\n--- FUENTE: {pdf_file.name} ---\n{texto_local}"
-                                bar.progress((idx + 1) / len(pdfs))
-                            except: pass
-                    
-                        contenido_final = nuevo_contenido + texto_pdf_total
-                    
-                        # Validar límite (aprox 50k caracteres por celda)
-                        if len(contenido_final) > 49000:
-                            st.warning(f"⚠️ ¡Ojo! El texto ({len(contenido_final)}) está cerca del límite de la celda (50k).")
-                    
-                        with_backoff(sheet_cerebro.update_acell, 'A1', contenido_final)
-                        cargar_conocimiento.clear()
-                        st.success("✅ PDFs procesados.")
-                        time.sleep(2)
-                        st.rerun()
-
-        
-            # ================= TAB 1: SOLICITUDES (CORREGIDO IDS y EMAILS) =================
+        # ================= TAB 1: SOLICITUDES (CORREGIDO IDS y EMAILS) =================
         with tab1:
             st.subheader("Gestión de Solicitudes")
             with st.spinner("Cargando..."):
