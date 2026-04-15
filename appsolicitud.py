@@ -1,10 +1,17 @@
 import os
 import json
+import logging
 import time, random
 from uuid import uuid4
 from datetime import datetime, timedelta
 import re
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+)
+log = logging.getLogger("appsolicitud")
 
 import streamlit as st
 import pandas as pd
@@ -80,7 +87,9 @@ def with_backoff(fn, *args, **kwargs):
 def load_json_safe(path: str) -> dict:
     try:
         with open(path, encoding="utf-8") as f: return json.load(f)
-    except: return {}
+    except Exception as e:
+        log.warning(f"load_json_safe: no se pudo leer '{path}': {e}")
+        return {}
 
 TZ_MX = ZoneInfo("America/Mexico_City")
 def now_mx_str() -> str: return datetime.now(TZ_MX).strftime("%d/%m/%Y %H:%M:%S")
@@ -95,7 +104,11 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
     return gspread.authorize(creds)
 
-book = with_backoff(get_gspread_client().open_by_key, SHEET_ID)
+@st.cache_resource
+def get_spreadsheet():
+    return with_backoff(get_gspread_client().open_by_key, SHEET_ID)
+
+book = get_spreadsheet()
 
 GCS_BUCKET_NAME = st.secrets.get("google_cloud_storage", {}).get("bucket_name", "")
 @st.cache_resource(ttl=3600)
@@ -201,12 +214,19 @@ def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunt
         )
         data = json.loads(resp.choices[0].message.content)
         return data.get("valido", True), data.get("razon_corta", "")
-    except: return True, ""
+    except Exception as e:
+        log.warning(f"validar_incidencia_con_ia: error llamando OpenAI, validación omitida: {e}")
+        return True, ""
 
 # =========================
 # Datos y Funciones Aux
 # =========================
-sheets = {k: book.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
+@st.cache_resource
+def get_sheets():
+    b = get_spreadsheet()
+    return {k: b.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
+
+sheets = get_sheets()
 
 # Creamos las variables existentes
 sheet_solicitudes = sheets["Sheet1"]
@@ -222,7 +242,9 @@ def get_records_simple(_ws) -> pd.DataFrame:
         if not v: return pd.DataFrame()
         h, d = v[0], v[1:]
         return pd.DataFrame([r + [""]*(len(h)-len(r)) for r in d], columns=h)
-    except: return pd.DataFrame()
+    except Exception as e:
+        log.error(f"get_records_simple: error leyendo hoja '{getattr(_ws, 'title', _ws)}': {e}")
+        return pd.DataFrame()
 
 data_folder = Path("data")
 estructura_roles = load_json_safe(data_folder / "estructura_roles.json")
@@ -244,11 +266,7 @@ def enviar_correo(asunto, cuerpo_detalle, para):
         # --- LISTA DE COPIAS (CC) ---
         # Aquí pones los correos de los jefes/supervisores.
         # Al ponerlos aquí, se aplicará para TODOS los envíos del sistema.
-        cc_list = [
-            "luis.alpizar@edu.uag.mx", 
-            "carlos.sotelo@edu.uag.mx", 
-            "esther.diaz@edu.uag.mx"
-        ]
+        cc_list = list(st.secrets["admin"]["emails"])
 
         to = [para]
         headers = {"From": f"Equipo CRM <{user_email}>"}
@@ -321,7 +339,8 @@ def auto_calificar_vencidos():
                         fecha_dt = fecha_dt.replace(tzinfo=TZ_MX)
                         if ahora - fecha_dt >= limite:
                             updates.append({"range": f"{chr(64+col_calif)}{i+2}", "values": [["👍"]]})
-                    except: pass
+                    except Exception as e:
+                        log.warning(f"auto_calificar_vencidos: fecha inválida en Sheet1 fila {i+2}: {e}")
             if updates:
                 sheet_solicitudes.batch_update(updates)
                 get_records_simple.clear()   # invalidar caché
@@ -348,7 +367,8 @@ def auto_calificar_vencidos():
                         fecha_dt = fecha_dt.replace(tzinfo=TZ_MX)
                         if ahora - fecha_dt >= limite:
                             updates.append({"range": f"{chr(64+col_calif)}{i+2}", "values": [["👍"]]})
-                    except: pass
+                    except Exception as e:
+                        log.warning(f"auto_calificar_vencidos: fecha inválida en Incidencias fila {i+2}: {e}")
             if updates:
                 sheet_incidencias.batch_update(updates)
                 get_records_simple.clear()
@@ -372,82 +392,8 @@ st.session_state.nav_index = idx
 # ¡AQUÍ NACE LA VARIABLE!
 seccion = nav[idx]
 
-# =========================
-# 1. FUNCIÓN DE CARGA DE CONOCIMIENTO (AGREGAR AL INICIO CON TUS OTRAS FUNCIONES)
-# =========================
-
-
-# ===================== SECCIÓN: ASISTENTE IA (PORTERO EXPERTO) =====================
-
-
-if seccion == "🏠 Asistente IA 24/7":
-    st.markdown("## 🤖 Sistema de Canalización MKT")
-    st.info("👋 **Hola.** Soy tu respaldo técnico. Conozco los procesos exactos de Altas, Bajas e Incidencias.")
-
-    # Historial visual (Chat en pantalla)
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    if prompt := st.chat_input("Escribe tu duda (ej: 'Tengo un desfase', 'Quiero una baja')..."):
-        # 1. Mostrar mensaje del usuario
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # 2. Generar respuesta IA
-        with st.chat_message("assistant"):
-            with st.spinner("Consultando manuales..."):
-                try:
-                    client_ai = get_openai_client()
-                    if client_ai:
-                        base_conocimiento = ""  # cargar_conocimiento() — requiere hoja Cerebro
-                        
-                        contexto = f"""
-                        ERES EL SOPORTE TÉCNICO EXPERTO DEL CRM UAG.
-                        TU FUENTE DE VERDAD: {base_conocimiento}
-                        TU MISIÓN: Responde basándote en la fuente.
-                        REGLAS:
-                        1. Si es INCIDENCIA -> Ve a '🛠️ Incidencias CRM'.
-                        2. Si es SOLICITUD -> Ve a '🌟 Solicitudes CRM'.
-                        3. Sé breve y profesional.
-                        4. Prohibido ser Grosero
-                        """
-                        
-                        resp = client_ai.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[
-                                {"role": "system", "content": contexto},
-                                {"role": "user", "content": prompt}
-                            ],
-                            temperature=0.0
-                        )
-                        reply = resp.choices[0].message.content
-                        
-                        # --- 🔴 AQUÍ GUARDAMOS EN EXCEL (AUDITORÍA) ---
-                        # Obtenemos usuario (si está logueado) o ponemos "Anónimo"
-                        usuario_actual = st.session_state.usuario_logueado if st.session_state.usuario_logueado else "Anónimo/Invitado"
-                        
-                        # Fila: [Fecha, Usuario, Pregunta, Respuesta]
-                        log_row = [now_mx_str(), usuario_actual, prompt, reply]
-                        
-                        # Guardamos en segundo plano (para no alentar el chat)
-                        try:
-                            pass  # with_backoff(sheet_historial.append_row, log_row) — requiere hoja Historial_IA
-                        except Exception as e:
-                            print(f"No se pudo guardar historial: {e}")
-                        # ---------------------------------------------
-
-                    else:
-                        reply = "La IA no está conectada."
-                except Exception as e:
-                    reply = f"Error: {e}"
-                
-                st.markdown(reply)
-                st.session_state.messages.append({"role": "assistant", "content": reply})
+# Sección "🏠 Asistente IA 24/7" eliminada intencionalmente.
+# Estaba desconectada del nav activo y nunca se ejecutaba.
 
 
 # --- 1. ESTADO (CORREGIDO: AHORA MUESTRA SOLICITUDES E INCIDENCIAS) ---
@@ -932,11 +878,7 @@ elif seccion == "🔐 Zona Admin":
         st.rerun()
 
     # Correos de Jefes para Copia (CC)
-    lista_supervisores = [
-        "luis.alpizar@edu.uag.mx", 
-        "carlos.sotelo@edu.uag.mx", 
-        "esther.diaz@edu.uag.mx"
-    ]
+    lista_supervisores = list(st.secrets["admin"]["emails"])
 
     pwd = st.text_input("Contraseña Admin", type="password")
     ADMIN_PASS = st.secrets.get("admin", {}).get("password", "")
@@ -1099,9 +1041,11 @@ elif seccion == "🔐 Zona Admin":
                                             <p>Saludos,<br>CRM UAG</p>
                                         </div>
                                         """
+                                        lista_supervisores = list(st.secrets["admin"]["emails"])
                                         yag.send(to=correo_usu, cc=lista_supervisores, subject=f"✅ Resuelto: {row_i.get('Asunto')}", contents=[html], headers=headers)
                                         st.toast("📧 Notificado.")
-                                    except: pass
+                                    except Exception as e:
+                                        log.error(f"tab2_responder_incidencia: error enviando correo a {correo_usu}: {e}")
                                 st.success("✅ Actualizado"); time.sleep(1); st.rerun()
 
                         if c2.button("🗑️ Eliminar Incidencia"):
@@ -1156,9 +1100,17 @@ elif seccion == "🔐 Zona Admin":
                         if st.button("💾 Guardar Cambios"):
                             cell = with_backoff(sheet_quejas.find, sel_id_q)
                             if cell:
-                                # En hoja Quejas: Columna 7 es Estado, Columna 11 es Respuesta
-                                sheet_quejas.update_cell(cell.row, 7, nuevo_estado)
-                                sheet_quejas.update_cell(cell.row, 11, nueva_resp)
+                                header_q = with_backoff(sheet_quejas.row_values, 1)
+                                _estado_col = next((c for c in ["EstadoQ", "Estado"] if c in header_q), None)
+                                _resp_col   = next((c for c in ["RespuestaQ", "RespuestaAdmin"] if c in header_q), None)
+                                if _estado_col:
+                                    sheet_quejas.update_cell(cell.row, header_q.index(_estado_col) + 1, nuevo_estado)
+                                else:
+                                    log.error("tab3: columna Estado no encontrada en sheet_quejas")
+                                if _resp_col:
+                                    sheet_quejas.update_cell(cell.row, header_q.index(_resp_col) + 1, nueva_resp)
+                                else:
+                                    log.error("tab3: columna Respuesta no encontrada en sheet_quejas")
                             
                                 # Notificar
                                 if nuevo_estado in ["Aprobado", "Rechazado", "Atendido"]:
@@ -1168,7 +1120,8 @@ elif seccion == "🔐 Zona Admin":
                                         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
                                         yag.send(to=correo_val, subject=asunto_mail, contents=[body_mail])
                                         st.toast("📧 Notificación enviada.")
-                                    except: pass
+                                    except Exception as e:
+                                        log.error(f"tab3_guardar_cambios: error enviando correo a {correo_val}: {e}")
                             
                                 st.success("Registro actualizado.")
                                 time.sleep(1)
