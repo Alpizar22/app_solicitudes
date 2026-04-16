@@ -5,7 +5,6 @@ import logging
 import streamlit as st
 import pandas as pd
 import gspread
-from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 
 log = logging.getLogger("sheets")
@@ -22,8 +21,10 @@ def with_backoff(fn, *args, **kwargs):
     for i in range(5):
         try:
             return fn(*args, **kwargs)
-        except Exception:
+        except Exception as e:
+            log.warning(f"with_backoff: intento {i + 1}/5 fallido en '{getattr(fn, '__name__', fn)}': {e}")
             time.sleep(min(1 * (2 ** i) + random.random(), 16))
+    log.error(f"with_backoff: todos los intentos fallaron para '{getattr(fn, '__name__', fn)}'")
     raise Exception("API Failed")
 
 

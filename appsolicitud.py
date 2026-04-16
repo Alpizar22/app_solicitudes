@@ -4,8 +4,8 @@ import logging
 import time, random
 from uuid import uuid4
 from datetime import datetime, timedelta
-import re
 from pathlib import Path
+from typing import Optional
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +40,7 @@ MAX_VIDEO_BYTES = MAX_VIDEO_MB * _MB
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
 VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.ogg'}
 
-def _guess_is_image_or_video(file_name: str, mime: str | None):
+def _guess_is_image_or_video(file_name: str, mime: Optional[str]):
     ext = Path(file_name).suffix.lower()
     if mime:
         if mime.startswith("image/"): return "image", ext
@@ -142,7 +142,7 @@ def cargar_manual_pdf(ruta="manual.pdf"):
             texto = "".join([p.extract_text() for p in reader.pages])
             for i in range(0, len(texto), 1000):
                 chunks.append(f"[MANUAL]: {texto[i:i+1000]}")
-        except Exception as e: print(f"Error PDF: {e}")
+        except Exception as e: log.warning(f"cargar_manual_pdf: error leyendo '{ruta}': {e}")
     return chunks
 
 def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunto):
@@ -247,7 +247,7 @@ def auto_calificar_vencidos():
                 sheet_solicitudes.batch_update(updates)
                 get_records_simple.clear()   # invalidar caché
     except Exception as e:
-        print(f"Auto-calif solicitudes: {e}")
+        log.warning(f"auto_calificar_vencidos: error procesando Sheet1: {e}")
 
     # --- INCIDENCIAS ---
     try:
@@ -275,7 +275,7 @@ def auto_calificar_vencidos():
                 sheet_incidencias.batch_update(updates)
                 get_records_simple.clear()
     except Exception as e:
-        print(f"Auto-calif incidencias: {e}")
+        log.warning(f"auto_calificar_vencidos: error procesando Incidencias: {e}")
 
 # auto_calificar_vencidos() — se ejecuta desde el botón en Admin
 
@@ -822,7 +822,7 @@ elif seccion == "🔐 Zona Admin":
                         st.info(f"**{row_s.get('TipoS')}** - {row_s.get('NombreS')} ({row_s.get('CorreoS')})")
                         st.caption(f"Solicitado por: {row_s.get('SolicitanteS')}")
                         
-                        c_st, c_at = st.columns(2)
+                        c_st, _ = st.columns(2)
                         st_act = row_s.get("EstadoS", "Pendiente")
                         opts = ["Pendiente", "En proceso", "Atendido"]
                         idx_st = opts.index(st_act) if st_act in opts else 0
@@ -909,7 +909,7 @@ elif seccion == "🔐 Zona Admin":
                             except NameError:
                                 st.warning("La función de IA RAG no está definida en este contexto.")
 
-                        c_st_i, c_at_i = st.columns(2)
+                        c_st_i, _ = st.columns(2)
                         st_act_i = row_i.get("EstadoI", "Pendiente")
                         opts_i = ["Pendiente", "En proceso", "Atendido"]
                         idx_i = opts_i.index(st_act_i) if st_act_i in opts_i else 0
@@ -997,7 +997,7 @@ elif seccion == "🔐 Zona Admin":
                         st.markdown(f"**Tipo:** {tipo_val} | **Solicitante:** {correo_val}")
                         st.warning(f"**Detalle:** {desc_val}")
                     
-                        c_st_q, c_dummy = st.columns(2)
+                        c_st_q, _ = st.columns(2)
                         opts_q = ["Pendiente", "Aprobado", "Rechazado", "En Revisión", "Atendido"]
                         idx_q = opts_q.index(estado_val) if estado_val in opts_q else 0
                     
