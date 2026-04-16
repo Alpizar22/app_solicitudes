@@ -15,10 +15,9 @@ log = logging.getLogger("appsolicitud")
 
 import streamlit as st
 import pandas as pd
-import gspread
-from gspread.exceptions import APIError
+from google.cloud import storage  # GCS
 from google.oauth2.service_account import Credentials
-from google.cloud import storage # GCS
+from gspread.utils import rowcol_to_a1
 import yagmail
 from zoneinfo import ZoneInfo
 
@@ -69,20 +68,6 @@ def validate_upload_limits(uploaded_file) -> tuple[bool, str]:
 # =========================
 # Utils & Config
 # =========================
-EMAIL_RE = re.compile(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})', re.I)
-def _email_norm(s: str) -> str:
-    if s is None: return ""
-    m = EMAIL_RE.search(str(s))
-    return m.group(1).strip().lower() if m else str(s).strip().lower()
-
-def _norm(x): return str(x).strip().lower() if pd.notna(x) else ""
-def _is_unrated(val: str) -> bool: return _norm(val) in ("", "pendiente", "na", "n/a", "sin calificacion", "-")
-
-def with_backoff(fn, *args, **kwargs):
-    for i in range(5):
-        try: return fn(*args, **kwargs)
-        except Exception: time.sleep(min(1*(2**i) + random.random(), 16))
-    raise Exception("API Failed")
 
 def load_json_safe(path: str) -> dict:
     try:
@@ -95,20 +80,14 @@ TZ_MX = ZoneInfo("America/Mexico_City")
 def now_mx_str() -> str: return datetime.now(TZ_MX).strftime("%d/%m/%Y %H:%M:%S")
 
 st.set_page_config(page_title="Gestor Zoho CRM", layout="wide")
-APP_MODE = st.secrets.get("mode", "dev")
-SEND_EMAILS = bool(st.secrets.get("email", {}).get("send_enabled", False))
-SHEET_ID = (st.secrets.get("sheets", {}).get("prod_id") if APP_MODE == "prod" else st.secrets.get("sheets", {}).get("dev_id"))
 
-@st.cache_resource(ttl=3600)
-def get_gspread_client():
-    creds = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"])
-    return gspread.authorize(creds)
-
-@st.cache_resource
-def get_spreadsheet():
-    return with_backoff(get_gspread_client().open_by_key, SHEET_ID)
-
-book = get_spreadsheet()
+# --- Módulos internos (importados después de set_page_config) ---
+from modules.sheets import (
+    with_backoff, get_records_simple,
+    sheet_solicitudes, sheet_incidencias, sheet_quejas, sheet_usuarios,
+)
+from modules.email_utils import enviar_correo, SEND_EMAILS
+from modules.auth import _email_norm, do_login, do_logout, get_usuarios_dict
 
 GCS_BUCKET_NAME = st.secrets.get("google_cloud_storage", {}).get("bucket_name", "")
 @st.cache_resource(ttl=3600)
@@ -116,9 +95,9 @@ def get_gcs_client():
     creds = Credentials.from_service_account_info(st.secrets["google_service_account"], scopes=["https://www.googleapis.com/auth/cloud-platform"])
     return storage.Client(project=st.secrets["google_service_account"]["project_id"], credentials=creds)
 
-def upload_to_gcs(file_buffer, filename_in_bucket, content_type, expires_minutes=720):
+def upload_to_gcs(file_buffer, filename_in_bucket, content_type):
     """
-    Sube a GCS y devuelve URL firmada temporal (compatible con UBLA/PAP).
+    Sube a GCS y devuelve URL firmada temporal válida por 7 días (compatible con UBLA/PAP).
     """
     client = get_gcs_client()
     if not client:
@@ -221,88 +200,11 @@ def validar_incidencia_con_ia(asunto, descripcion, categoria, link, tiene_adjunt
 # =========================
 # Datos y Funciones Aux
 # =========================
-@st.cache_resource
-def get_sheets():
-    b = get_spreadsheet()
-    return {k: b.worksheet(k) for k in ["Sheet1", "Incidencias", "Quejas", "Accesos", "Usuarios"]}
-
-sheets = get_sheets()
-
-# Creamos las variables existentes
-sheet_solicitudes = sheets["Sheet1"]
-sheet_incidencias = sheets["Incidencias"]
-sheet_quejas = sheets["Quejas"]
-sheet_usuarios = sheets["Usuarios"]
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def get_records_simple(_ws) -> pd.DataFrame:
-    try:
-        v = with_backoff(_ws.get_all_values)
-        if not v: return pd.DataFrame()
-        h, d = v[0], v[1:]
-        return pd.DataFrame([r + [""]*(len(h)-len(r)) for r in d], columns=h)
-    except Exception as e:
-        log.error(f"get_records_simple: error leyendo hoja '{getattr(_ws, 'title', _ws)}': {e}")
-        return pd.DataFrame()
-
 data_folder = Path("data")
 estructura_roles = load_json_safe(data_folder / "estructura_roles.json")
 numeros_por_rol  = load_json_safe(data_folder / "numeros_por_rol.json")
 horarios_dict    = load_json_safe(data_folder / "horarios.json")
 
-udf = get_records_simple(sheet_usuarios)
-usuarios_dict = {str(p).strip(): _email_norm(c) for p, c in zip(udf.get("Contraseña",[]), udf.get("Correo",[])) if str(p).strip()}
-
-def enviar_correo(asunto, cuerpo_detalle, para):
-    if not SEND_EMAILS: return
-    try:
-        # Obtenemos el usuario y password de los secrets
-        user_email = st.secrets["email"]["user"]
-        password = st.secrets["email"]["password"]
-        
-        yag = yagmail.SMTP(user=user_email, password=password)
-        
-        # --- LISTA DE COPIAS (CC) ---
-        # Aquí pones los correos de los jefes/supervisores.
-        # Al ponerlos aquí, se aplicará para TODOS los envíos del sistema.
-        cc_list = list(st.secrets["admin"]["emails"])
-
-        to = [para]
-        headers = {"From": f"Equipo CRM <{user_email}>"}
-        
-        # --- TU DISEÑO HTML (INTACTO) ---
-        mensaje_html = f"""
-        <div style="font-family: Arial, sans-serif; color: #333;">
-            <h2 style="color: #004B93;">Confirmación de Recepción</h2>
-            <p>Hola,</p>
-            <p>Hemos recibido tu solicitud con el asunto: <strong>{asunto}</strong>.</p>
-            <p>Se ha notificado al equipo de CRM y tu caso ha entrado en la cola de gestión. 
-            Será atendido en su momento conforme a la carga de trabajo.</p>
-            <p><strong>No es necesario que respondas a este correo.</strong> 
-            Te notificaremos nuevamente por este medio en cuanto haya una actualización o resolución.</p>
-            <hr>
-            <p style="font-size: 12px; color: #666;">Detalle recibido:<br>{cuerpo_detalle}</p>
-            <br>
-            <p>Atentamente,<br><strong>Equipo de Gestión CRM</strong></p>
-        </div>
-        """
-        
-        # --- EL ENVÍO CON CC ---
-        yag.send(
-            to=to, 
-            cc=cc_list,  # <--- AQUÍ SE AGREGAN LAS COPIAS
-            subject=f"Recibido: {asunto}", 
-            contents=[mensaje_html], 
-            headers=headers
-        )
-        print(f"Correo enviado a {to} con copia a {cc_list}")
-
-    except Exception as e: 
-        print(f"Error enviando correo: {e}")
-
-def do_login(m): st.session_state.update({"usuario_logueado": _email_norm(m), "session_id": str(uuid4())}); st.rerun()
-def do_logout(): st.session_state.clear(); st.rerun()
 if "usuario_logueado" not in st.session_state: st.session_state.usuario_logueado = None
 
 
@@ -338,7 +240,7 @@ def auto_calificar_vencidos():
                         fecha_dt = datetime.strptime(fecha, "%d/%m/%Y %H:%M:%S")
                         fecha_dt = fecha_dt.replace(tzinfo=TZ_MX)
                         if ahora - fecha_dt >= limite:
-                            updates.append({"range": f"{chr(64+col_calif)}{i+2}", "values": [["👍"]]})
+                            updates.append({"range": rowcol_to_a1(i + 2, col_calif), "values": [["👍"]]})
                     except Exception as e:
                         log.warning(f"auto_calificar_vencidos: fecha inválida en Sheet1 fila {i+2}: {e}")
             if updates:
@@ -366,7 +268,7 @@ def auto_calificar_vencidos():
                         fecha_dt = datetime.strptime(fecha, "%d/%m/%Y %H:%M:%S")
                         fecha_dt = fecha_dt.replace(tzinfo=TZ_MX)
                         if ahora - fecha_dt >= limite:
-                            updates.append({"range": f"{chr(64+col_calif)}{i+2}", "values": [["👍"]]})
+                            updates.append({"range": rowcol_to_a1(i + 2, col_calif), "values": [["👍"]]})
                     except Exception as e:
                         log.warning(f"auto_calificar_vencidos: fecha inválida en Incidencias fila {i+2}: {e}")
             if updates:
@@ -403,7 +305,8 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
         with st.form("log"):
             pw = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar"):
-                if pw.strip() in usuarios_dict: do_login(usuarios_dict[pw.strip()])
+                udict = get_usuarios_dict()
+                if pw.strip() in udict: do_login(udict[pw.strip()])
                 else: st.error("Contraseña incorrecta")
     else:
         st.info(f"Usuario: **{st.session_state.usuario_logueado}**")
@@ -411,8 +314,8 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
         
         # --- BLOQUE A: MIS SOLICITUDES (ALTAS/BAJAS) ---
         st.subheader("🌟 Mis Solicitudes (Altas/Bajas)")
-        dfs = get_records_simple(sheet_solicitudes)
-        
+        dfs = get_records_simple(sheet_solicitudes, "Sheet1")
+
         # Verificamos si existe la columna "SolicitanteS" y filtramos
         if not dfs.empty and "SolicitanteS" in dfs.columns:
             # Filtramos donde el solicitante sea el usuario logueado
@@ -435,7 +338,7 @@ if seccion == "🔍 Ver el estado de mis solicitudes":
 
         # --- BLOQUE B: MIS INCIDENCIAS (SOPORTE) ---
         st.subheader("🛠️ Mis Incidencias (Soporte)")
-        dfi = get_records_simple(sheet_incidencias)
+        dfi = get_records_simple(sheet_incidencias, "Incidencias")
         if not dfi.empty and "CorreoI" in dfi.columns:
             dfmi = dfi[dfi["CorreoI"].map(_email_norm) == st.session_state.usuario_logueado]
             
@@ -880,9 +783,13 @@ elif seccion == "🔐 Zona Admin":
     # Correos de Jefes para Copia (CC)
     lista_supervisores = list(st.secrets["admin"]["emails"])
 
-    pwd = st.text_input("Contraseña Admin", type="password")
     ADMIN_PASS = st.secrets.get("admin", {}).get("password", "")
-    
+    if not ADMIN_PASS:
+        st.error("⚠️ Admin no configurado: falta admin.password en secrets.")
+        st.stop()
+
+    pwd = st.text_input("Contraseña Admin", type="password")
+
     if pwd == ADMIN_PASS or st.session_state.get("is_admin", False):
         st.session_state.is_admin = True
         
@@ -892,8 +799,8 @@ elif seccion == "🔐 Zona Admin":
         with tab1:
             st.subheader("Gestión de Solicitudes")
             with st.spinner("Cargando..."):
-                dfs = get_records_simple(sheet_solicitudes)
-            
+                dfs = get_records_simple(sheet_solicitudes, "Sheet1")
+
             if dfs.empty:
                 st.warning("⚠️ No hay datos o conexión lenta.")
             else:
@@ -941,7 +848,7 @@ elif seccion == "🔐 Zona Admin":
                                     
                                     # Correo al SolicitanteS
                                     correo_sol = row_s.get("SolicitanteS")
-                                    if nuevo_estado == "Atendido" and mensaje_respuesta and correo_sol:
+                                    if SEND_EMAILS and nuevo_estado == "Atendido" and mensaje_respuesta and correo_sol:
                                         try:
                                             yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
                                             headers = {"From": f"Equipo CRM <{st.secrets['email']['user']}>"}
@@ -976,8 +883,8 @@ elif seccion == "🔐 Zona Admin":
         with tab2:
             st.subheader("Gestión de Incidencias")
             with st.spinner("Cargando..."):
-                dfi = get_records_simple(sheet_incidencias)
-            
+                dfi = get_records_simple(sheet_incidencias, "Incidencias")
+
             if dfi.empty:
                 st.warning("⚠️ No hay datos.")
             else:
@@ -1023,7 +930,7 @@ elif seccion == "🔐 Zona Admin":
                                 sheet_incidencias.update_cell(cell.row, col_resp, respuesta)
                                 
                                 correo_usu = row_i.get("CorreoI")
-                                if nuevo_estado_i == "Atendido" and respuesta and correo_usu:
+                                if SEND_EMAILS and nuevo_estado_i == "Atendido" and respuesta and correo_usu:
                                     try:
                                         yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
                                         headers = {"From": f"Equipo CRM <{st.secrets['email']['user']}>"}
@@ -1059,7 +966,7 @@ elif seccion == "🔐 Zona Admin":
             st.subheader("Gestión de Accesos, Quejas y Sugerencias")
         
             # Leemos de QUEJAS
-            dfq = get_records_simple(sheet_quejas)
+            dfq = get_records_simple(sheet_quejas, "Quejas")
         
             if dfq.empty:
                 st.info("No hay registros pendientes.")
@@ -1103,26 +1010,30 @@ elif seccion == "🔐 Zona Admin":
                                 header_q = with_backoff(sheet_quejas.row_values, 1)
                                 _estado_col = next((c for c in ["EstadoQ", "Estado"] if c in header_q), None)
                                 _resp_col   = next((c for c in ["RespuestaQ", "RespuestaAdmin"] if c in header_q), None)
+                                _updated = False
                                 if _estado_col:
                                     sheet_quejas.update_cell(cell.row, header_q.index(_estado_col) + 1, nuevo_estado)
+                                    _updated = True
                                 else:
                                     log.error("tab3: columna Estado no encontrada en sheet_quejas")
                                 if _resp_col:
                                     sheet_quejas.update_cell(cell.row, header_q.index(_resp_col) + 1, nueva_resp)
+                                    _updated = True
                                 else:
                                     log.error("tab3: columna Respuesta no encontrada en sheet_quejas")
-                            
-                                # Notificar
-                                if nuevo_estado in ["Aprobado", "Rechazado", "Atendido"]:
-                                    asunto_mail = f"Actualización: {tipo_val}"
-                                    body_mail = f"<p>Estado actualizado a: <strong>{nuevo_estado}</strong>.</p><p>Respuesta: {nueva_resp}</p>"
-                                    try:
-                                        yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
-                                        yag.send(to=correo_val, subject=asunto_mail, contents=[body_mail])
-                                        st.toast("📧 Notificación enviada.")
-                                    except Exception as e:
-                                        log.error(f"tab3_guardar_cambios: error enviando correo a {correo_val}: {e}")
-                            
-                                st.success("Registro actualizado.")
-                                time.sleep(1)
-                                st.rerun()
+
+                                if _updated:
+                                    # Notificar
+                                    if SEND_EMAILS and nuevo_estado in ["Aprobado", "Rechazado", "Atendido"]:
+                                        asunto_mail = f"Actualización: {tipo_val}"
+                                        body_mail = f"<p>Estado actualizado a: <strong>{nuevo_estado}</strong>.</p><p>Respuesta: {nueva_resp}</p>"
+                                        try:
+                                            yag = yagmail.SMTP(user=st.secrets["email"]["user"], password=st.secrets["email"]["password"])
+                                            yag.send(to=correo_val, subject=asunto_mail, contents=[body_mail])
+                                            st.toast("📧 Notificación enviada.")
+                                        except Exception as e:
+                                            log.error(f"tab3_guardar_cambios: error enviando correo a {correo_val}: {e}")
+
+                                    st.success("Registro actualizado.")
+                                    time.sleep(1)
+                                    st.rerun()
