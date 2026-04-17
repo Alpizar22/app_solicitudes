@@ -302,12 +302,17 @@ seccion = nav[idx]
 if seccion == "🔍 Ver el estado de mis solicitudes":
     st.markdown("## 🔍 Mis Tickets")
     if not st.session_state.usuario_logueado:
-        with st.form("log"):
+        if st.session_state.pop("login_error", False):
+            st.error("❌ Contraseña incorrecta. Inténtalo de nuevo.")
+        with st.form("log", clear_on_submit=True):
             pw = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar"):
                 udict = get_usuarios_dict()
-                if pw.strip() in udict: do_login(udict[pw.strip()])
-                else: st.error("Contraseña incorrecta")
+                if pw.strip() in udict:
+                    do_login(udict[pw.strip()])
+                else:
+                    st.session_state["login_error"] = True
+                    st.rerun()
     else:
         st.info(f"Usuario: **{st.session_state.usuario_logueado}**")
         if st.button("Salir"): do_logout()
@@ -603,7 +608,11 @@ elif seccion == "🛠️ Incidencias CRM":
         asunto = st.text_input("Asunto (*)")
         link = st.text_input("Link del registro afectado (Zoho) (*)")
         descripcion = st.text_area("Descripción detallada (*)", height=150)
-        file = st.file_uploader("Adjuntar Imagen/Video (Evidencia)")
+        file = st.file_uploader(
+            "Adjuntar Imagen/Video (Evidencia)",
+            type=["jpg", "jpeg", "png", "gif", "bmp", "webp",
+                  "mp4", "mov", "avi", "wmv", "mkv", "webm", "ogg"],
+        )
         
         confirmacion = st.checkbox(check_texto)
         enviar = st.form_submit_button("Enviar Incidencia")
@@ -765,21 +774,6 @@ elif seccion == "🔑 Accesos y Buzón":
 elif seccion == "🔐 Zona Admin":
     st.markdown("## 🔐 Zona Administrativa")
 
-    # 1. BOTÓN DE EMERGENCIA
-    col_refresh, col_calif, col_spacer = st.columns([1, 2, 3])
-    if col_refresh.button("🔄 Refrescar Conexión"):
-        st.cache_resource.clear()
-        st.cache_data.clear()
-        st.toast("♻️ Conexión reiniciada...")
-        time.sleep(1)
-        st.rerun()
-    if col_calif.button("⭐ Auto-calificar vencidos (3 días)"):
-        with st.spinner("Revisando registros sin calificación..."):
-            auto_calificar_vencidos()
-        st.success("✅ Revisión completada. Registros sin calificar después de 3 días → 👍")
-        time.sleep(1)
-        st.rerun()
-
     # Correos de Jefes para Copia (CC)
     lista_supervisores = list(st.secrets["admin"]["emails"])
 
@@ -792,7 +786,22 @@ elif seccion == "🔐 Zona Admin":
 
     if pwd == ADMIN_PASS or st.session_state.get("is_admin", False):
         st.session_state.is_admin = True
-        
+
+        col_refresh, col_calif = st.columns(2)
+        if col_refresh.button("🔄 Refrescar Conexión"):
+            st.cache_resource.clear()
+            st.cache_data.clear()
+            st.toast("♻️ Conexión reiniciada...")
+            time.sleep(1)
+            st.rerun()
+        if col_calif.button("⭐ Auto-calificar vencidos (3 días)"):
+            with st.spinner("Revisando registros sin calificación..."):
+                auto_calificar_vencidos()
+            st.success("✅ Revisión completada. Registros sin calificar después de 3 días → 👍")
+            time.sleep(1)
+            st.rerun()
+        st.divider()
+
         tab1, tab2, tab3 = st.tabs(["Solicitudes", "Incidencias", "Quejas"])
 
         # ================= TAB 1: SOLICITUDES (CORREGIDO IDS y EMAILS) =================
